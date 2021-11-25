@@ -8,7 +8,6 @@
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSubquery.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
-#include <Parsers/ASTSelectIntersectExceptQuery.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Parsers/ASTFunction.h>
 #include <Parsers/ASTCreateQuery.h>
@@ -87,12 +86,7 @@ private:
     void visit(ASTSelectWithUnionQuery & select, ASTPtr &) const
     {
         for (auto & child : select.list_of_selects->children)
-        {
-            if (child->as<ASTSelectQuery>())
-                tryVisit<ASTSelectQuery>(child);
-            else if (child->as<ASTSelectIntersectExceptQuery>())
-                tryVisit<ASTSelectIntersectExceptQuery>(child);
-        }
+            tryVisit<ASTSelectQuery>(child);
     }
 
     void visit(ASTSelectQuery & select, ASTPtr &) const
@@ -101,19 +95,6 @@ private:
             tryVisit<ASTTablesInSelectQuery>(select.refTables());
 
         visitChildren(select);
-    }
-
-    void visit(ASTSelectIntersectExceptQuery & select, ASTPtr &) const
-    {
-        for (auto & child : select.getListOfSelects())
-        {
-            if (child->as<ASTSelectQuery>())
-                tryVisit<ASTSelectQuery>(child);
-            else if (child->as<ASTSelectIntersectExceptQuery>())
-                tryVisit<ASTSelectIntersectExceptQuery>(child);
-            else if (child->as<ASTSelectWithUnionQuery>())
-                tryVisit<ASTSelectWithUnionQuery>(child);
-        }
     }
 
     void visit(ASTTablesInSelectQuery & tables, ASTPtr &) const
@@ -239,8 +220,8 @@ private:
         if (only_replace_current_database_function)
             return;
 
-        if (!node.database)
-            node.setDatabase(database_name);
+        if (node.database.empty())
+            node.database = database_name;
     }
 
     void visitDDL(ASTRenameQuery & node, ASTPtr &) const
@@ -262,8 +243,8 @@ private:
         if (only_replace_current_database_function)
             return;
 
-        if (!node.database)
-            node.setDatabase(database_name);
+        if (node.database.empty())
+            node.database = database_name;
 
         for (const auto & child : node.command_list->children)
         {

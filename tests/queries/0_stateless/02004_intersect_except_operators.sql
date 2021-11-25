@@ -48,7 +48,3 @@ select 1 intersect select count() from (select 1 except select 2 intersect selec
 explain syntax select 1 intersect select 1;
 explain syntax select 1 except select 1;
 explain syntax select 1 union all select 2  except (select 2 except select 1 union all select 1) except select 4;
-
-set limit=1;
-select 1 intersect select 1;
-(((select 1) intersect select 1));

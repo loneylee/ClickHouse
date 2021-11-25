@@ -428,6 +428,7 @@ void AvroRowOutputFormat::consumeImpl(DB::Chunk chunk)
     auto num_rows = chunk.getNumRows();
     const auto & columns = chunk.getColumns();
 
+    writePrefixIfNot();
     for (size_t row = 0; row < num_rows; ++row)
     {
         write(columns, row);
@@ -446,7 +447,7 @@ void AvroRowOutputFormat::consumeImplWithCallback(DB::Chunk chunk)
         /// used by WriteBufferToKafkaProducer to obtain auxiliary data
         ///   from the starting row of a file
 
-        writePrefixIfNot();
+        writePrefix();
         for (size_t row_in_file = 0;
              row_in_file < settings.avro.output_rows_in_file && row < num_rows;
              ++row, ++row_in_file)
@@ -456,7 +457,6 @@ void AvroRowOutputFormat::consumeImplWithCallback(DB::Chunk chunk)
 
         file_writer_ptr->flush();
         writeSuffix();
-        need_write_prefix = true;
 
         params.callback(columns, current_row);
     }

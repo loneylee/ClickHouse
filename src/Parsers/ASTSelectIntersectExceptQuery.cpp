@@ -15,10 +15,12 @@ ASTPtr ASTSelectIntersectExceptQuery::clone() const
         res->children.push_back(child->clone());
 
     res->final_operator = final_operator;
+
+    cloneOutputOptions(*res);
     return res;
 }
 
-void ASTSelectIntersectExceptQuery::formatImpl(const FormatSettings & settings, FormatState & state, FormatStateStacked frame) const
+void ASTSelectIntersectExceptQuery::formatQueryImpl(const FormatSettings & settings, FormatState & state, FormatStateStacked frame) const
 {
     std::string indent_str = settings.one_line ? "" : std::string(4 * frame.indent, ' ');
 
@@ -34,23 +36,6 @@ void ASTSelectIntersectExceptQuery::formatImpl(const FormatSettings & settings, 
 
         (*it)->formatImpl(settings, state, frame);
     }
-}
-
-ASTs ASTSelectIntersectExceptQuery::getListOfSelects() const
-{
-    /**
-     * Because of normalization actual number of selects is 2.
-     * But this is checked in InterpreterSelectIntersectExceptQuery.
-     */
-    ASTs selects;
-    for (const auto & child : children)
-    {
-        if (typeid_cast<ASTSelectQuery *>(child.get())
-            || typeid_cast<ASTSelectWithUnionQuery *>(child.get())
-            || typeid_cast<ASTSelectIntersectExceptQuery *>(child.get()))
-            selects.push_back(child);
-    }
-    return selects;
 }
 
 }

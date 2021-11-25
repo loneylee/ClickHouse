@@ -5,6 +5,8 @@
 
 namespace DB
 {
+using EntityTypeInfo = IAccessEntity::TypeInfo;
+
 
 String ASTShowAccessEntitiesQuery::getKeyword() const
 {
@@ -14,7 +16,7 @@ String ASTShowAccessEntitiesQuery::getKeyword() const
         return "CURRENT ROLES";
     if (enabled_roles)
         return "ENABLED ROLES";
-    return AccessEntityTypeInfo::get(type).plural_name;
+    return EntityTypeInfo::get(type).plural_name;
 }
 
 

@@ -14,12 +14,10 @@
 #include <Parsers/parseQuery.h>
 #include <Access/AccessControl.h>
 #include <Access/EnabledQuota.h>
-#include <Access/Quota.h>
 #include <Access/QuotaUsage.h>
-#include <Access/Role.h>
-#include <Access/RowPolicy.h>
-#include <Access/SettingsProfile.h>
 #include <Access/User.h>
+#include <Access/Role.h>
+#include <Access/SettingsProfile.h>
 #include <Columns/ColumnString.h>
 #include <Common/StringUtils/StringUtils.h>
 #include <Core/Defines.h>
@@ -150,7 +148,7 @@ namespace
         query->names.emplace_back(quota.getName());
         query->attach = attach_mode;
 
-        if (quota.key_type != QuotaKeyType::NONE)
+        if (quota.key_type != Quota::KeyType::NONE)
             query->key_type = quota.key_type;
 
         query->all_limits.reserve(quota.all_limits.size());
@@ -160,11 +158,8 @@ namespace
             ASTCreateQuotaQuery::Limits create_query_limits;
             create_query_limits.duration = limits.duration;
             create_query_limits.randomize_interval = limits.randomize_interval;
-            for (auto quota_type : collections::range(QuotaType::MAX))
-            {
-                auto quota_type_i = static_cast<size_t>(quota_type);
-                create_query_limits.max[quota_type_i] = limits.max[quota_type_i];
-            }
+            for (auto resource_type : collections::range(Quota::MAX_RESOURCE_TYPE))
+                create_query_limits.max[resource_type] = limits.max[resource_type];
             query->all_limits.push_back(create_query_limits);
         }
 
@@ -187,20 +182,20 @@ namespace
     {
         auto query = std::make_shared<ASTCreateRowPolicyQuery>();
         query->names = std::make_shared<ASTRowPolicyNames>();
-        query->names->full_names.emplace_back(policy.getFullName());
+        query->names->name_parts.emplace_back(policy.getNameParts());
         query->attach = attach_mode;
 
         if (policy.isRestrictive())
             query->is_restrictive = policy.isRestrictive();
 
-        for (auto type : collections::range(RowPolicyFilterType::MAX))
+        for (auto type : collections::range(RowPolicy::MAX_CONDITION_TYPE))
         {
-            const auto & filter = policy.filters[static_cast<size_t>(type)];
-            if (!filter.empty())
+            const auto & condition = policy.conditions[static_cast<size_t>(type)];
+            if (!condition.empty())
             {
                 ParserExpression parser;
-                ASTPtr expr = parseQuery(parser, filter, 0, DBMS_DEFAULT_MAX_PARSER_DEPTH);
-                query->filters.emplace_back(type, std::move(expr));
+                ASTPtr expr = parseQuery(parser, condition, 0, DBMS_DEFAULT_MAX_PARSER_DEPTH);
+                query->conditions.emplace_back(type, std::move(expr));
             }
         }
 
@@ -230,8 +225,10 @@ namespace
             return getCreateQueryImpl(*quota, access_control, attach_mode);
         if (const SettingsProfile * profile = typeid_cast<const SettingsProfile *>(&entity))
             return getCreateQueryImpl(*profile, access_control, attach_mode);
-        throw Exception(entity.formatTypeWithName() + ": type is not supported by SHOW CREATE query", ErrorCodes::NOT_IMPLEMENTED);
+        throw Exception(entity.outputTypeAndName() + ": type is not supported by SHOW CREATE query", ErrorCodes::NOT_IMPLEMENTED);
     }
+
+    using EntityType = IAccessEntity::Type;
 }
 
 
@@ -305,7 +302,7 @@ std::vector<AccessEntityPtr> InterpreterShowCreateAccessEntityQuery::getEntities
         if (usage)
             entities.push_back(access_control.read<Quota>(usage->quota_id));
     }
-    else if (show_query.type == AccessEntityType::ROW_POLICY)
+    else if (show_query.type == EntityType::ROW_POLICY)
     {
         auto ids = access_control.findAll<RowPolicy>();
         if (show_query.row_policy_names)
@@ -377,12 +374,12 @@ AccessRightsElements InterpreterShowCreateAccessEntityQuery::getRequiredAccess()
     AccessRightsElements res;
     switch (show_query.type)
     {
-        case AccessEntityType::USER: res.emplace_back(AccessType::SHOW_USERS); return res;
-        case AccessEntityType::ROLE: res.emplace_back(AccessType::SHOW_ROLES); return res;
-        case AccessEntityType::SETTINGS_PROFILE: res.emplace_back(AccessType::SHOW_SETTINGS_PROFILES); return res;
-        case AccessEntityType::ROW_POLICY: res.emplace_back(AccessType::SHOW_ROW_POLICIES); return res;
-        case AccessEntityType::QUOTA: res.emplace_back(AccessType::SHOW_QUOTAS); return res;
-        case AccessEntityType::MAX: break;
+        case EntityType::USER: res.emplace_back(AccessType::SHOW_USERS); return res;
+        case EntityType::ROLE: res.emplace_back(AccessType::SHOW_ROLES); return res;
+        case EntityType::SETTINGS_PROFILE: res.emplace_back(AccessType::SHOW_SETTINGS_PROFILES); return res;
+        case EntityType::ROW_POLICY: res.emplace_back(AccessType::SHOW_ROW_POLICIES); return res;
+        case EntityType::QUOTA: res.emplace_back(AccessType::SHOW_QUOTAS); return res;
+        case EntityType::MAX: break;
     }
     throw Exception(toString(show_query.type) + ": type is not supported by SHOW CREATE query", ErrorCodes::NOT_IMPLEMENTED);
 }

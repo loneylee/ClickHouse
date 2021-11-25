@@ -18,12 +18,14 @@ RabbitMQSink::RabbitMQSink(
     , metadata_snapshot(metadata_snapshot_)
     , context(context_)
 {
-    storage.unbindExchange();
 }
 
 
 void RabbitMQSink::onStart()
 {
+    if (!storage.exchangeRemoved())
+        storage.unbindExchange();
+
     buffer = storage.createWriteBuffer();
     buffer->activateWriting();
 
@@ -47,7 +49,7 @@ void RabbitMQSink::consume(Chunk chunk)
 
 void RabbitMQSink::onFinish()
 {
-    format->finalize();
+    format->doWriteSuffix();
 
     if (buffer)
         buffer->updateMaxWait();

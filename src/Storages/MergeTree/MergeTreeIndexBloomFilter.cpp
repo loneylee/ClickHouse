@@ -68,7 +68,7 @@ bool MergeTreeIndexBloomFilter::mayBenefitFromIndexForIn(const ASTPtr & node) co
         }
     }
 
-    return false;
+    return true;
 }
 
 MergeTreeIndexAggregatorPtr MergeTreeIndexBloomFilter::createIndexAggregator() const

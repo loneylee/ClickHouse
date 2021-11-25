@@ -98,9 +98,5 @@ using HDFSFSPtr = std::unique_ptr<std::remove_pointer_t<hdfsFS>, detail::HDFSFsD
 HDFSBuilderWrapper createHDFSBuilder(const String & uri_str, const Poco::Util::AbstractConfiguration &);
 HDFSFSPtr createHDFSFS(hdfsBuilder * builder);
 
-/// Check that url satisfy structure 'hdfs://<host_name>:<port>/<path>'
-/// and throw exception if it doesn't;
-void checkHDFSURL(const String & url);
-
 }
 #endif

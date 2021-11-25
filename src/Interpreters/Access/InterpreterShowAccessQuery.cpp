@@ -16,6 +16,8 @@
 
 namespace DB
 {
+using EntityType = IAccessEntity::Type;
+
 
 BlockIO InterpreterShowAccessQuery::execute()
 {
@@ -51,7 +53,7 @@ std::vector<AccessEntityPtr> InterpreterShowAccessQuery::getEntities() const
     getContext()->checkAccess(AccessType::SHOW_ACCESS);
 
     std::vector<AccessEntityPtr> entities;
-    for (auto type : collections::range(AccessEntityType::MAX))
+    for (auto type : collections::range(EntityType::MAX))
     {
         auto ids = access_control.findAll(type);
         for (const auto & id : ids)
@@ -75,7 +77,7 @@ ASTs InterpreterShowAccessQuery::getCreateAndGrantQueries() const
     for (const auto & entity : entities)
     {
         create_queries.push_back(InterpreterShowCreateAccessEntityQuery::getCreateQuery(*entity, access_control));
-        if (entity->isTypeOf(AccessEntityType::USER) || entity->isTypeOf(AccessEntityType::ROLE))
+        if (entity->isTypeOf(EntityType::USER) || entity->isTypeOf(EntityType::ROLE))
             boost::range::push_back(grant_queries, InterpreterShowGrantsQuery::getGrantQueries(*entity, access_control));
     }
 

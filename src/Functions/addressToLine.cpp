@@ -128,7 +128,7 @@ private:
                 writeChar(':', out);
                 writeIntText(location.line, out);
 
-                return out.complete();
+                return out.finish();
             }
             else
             {

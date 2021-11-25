@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Access/RowPolicy.h>
 #include <Core/Block.h>
 #include <Core/NamesAndTypes.h>
 #include <Core/Settings.h>
@@ -17,7 +18,6 @@
 
 #include "config_core.h"
 
-#include <boost/container/flat_set.hpp>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -43,7 +43,6 @@ struct QuotaUsage;
 class AccessFlags;
 struct AccessRightsElement;
 class AccessRightsElements;
-enum class RowPolicyFilterType;
 class EmbeddedDictionaries;
 class ExternalDictionariesLoader;
 class ExternalModelsLoader;
@@ -196,7 +195,7 @@ private:
     std::shared_ptr<std::vector<UUID>> current_roles;
     std::shared_ptr<const SettingsConstraintsAndProfileIDs> settings_constraints_and_current_profiles;
     std::shared_ptr<const ContextAccess> access;
-    std::shared_ptr<const EnabledRowPolicies> row_policies_of_initial_user;
+    std::shared_ptr<const EnabledRowPolicies> initial_row_policy;
     String current_database;
     Settings settings;  /// Setting for query execution.
 
@@ -341,7 +340,7 @@ public:
     String getUserScriptsPath() const;
 
     /// A list of warnings about server configuration to place in `system.warnings` table.
-    Strings getWarnings() const;
+    std::vector<String> getWarnings() const;
 
     VolumePtr getTemporaryVolume() const;
 
@@ -354,6 +353,9 @@ public:
     void addWarningMessage(const String & msg);
 
     VolumePtr setTemporaryStorage(const String & path, const String & policy_name = "");
+
+    void setBackupsVolume(const String & path, const String & policy_name = "");
+    VolumePtr getBackupsVolume() const;
 
     using ConfigurationPtr = Poco::AutoPtr<Poco::Util::AbstractConfiguration>;
 
@@ -379,6 +381,7 @@ public:
 
     /// Sets the current user assuming that he/she is already authenticated.
     /// WARNING: This function doesn't check password!
+    /// Normally you shouldn't call this function. Use the Session class to do authentication instead.
     void setUser(const UUID & user_id_);
 
     UserPtr getUser() const;
@@ -415,14 +418,12 @@ public:
 
     std::shared_ptr<const ContextAccess> getAccess() const;
 
-    ASTPtr getRowPolicyFilter(const String & database, const String & table_name, RowPolicyFilterType filter_type) const;
+    ASTPtr getRowPolicyCondition(const String & database, const String & table_name, RowPolicy::ConditionType type) const;
 
-    /// Finds and sets extra row policies to be used based on `client_info.initial_user`,
-    /// if the initial user exists.
+    /// Sets an extra row policy based on `client_info.initial_user`, if it exists.
     /// TODO: we need a better solution here. It seems we should pass the initial row policy
-    /// because a shard is allowed to not have the initial user or it might be another user
-    /// with the same name.
-    void enableRowPoliciesOfInitialUser();
+    /// because a shard is allowed to don't have the initial user or it may be another user with the same name.
+    void setInitialRowPolicy();
 
     std::shared_ptr<const EnabledQuota> getQuota() const;
     std::optional<QuotaUsage> getQuotaUsage() const;

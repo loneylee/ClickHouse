@@ -2,7 +2,7 @@
 
 #include <Parsers/IAST.h>
 #include <Parsers/ASTQueryWithOnCluster.h>
-#include <Access/Common/RowPolicyDefs.h>
+#include <Access/RowPolicy.h>
 
 
 namespace DB
@@ -14,8 +14,8 @@ namespace DB
 class ASTRowPolicyName : public IAST, public ASTQueryWithOnCluster
 {
 public:
-    RowPolicyName full_name;
-    String toString() const { return full_name.toString(); }
+    RowPolicy::NameParts name_parts;
+    String toString() const { return name_parts.getName(); }
 
     String getID(char) const override { return "RowPolicyName"; }
     ASTPtr clone() const override { return std::make_shared<ASTRowPolicyName>(*this); }
@@ -36,7 +36,7 @@ public:
 class ASTRowPolicyNames : public IAST, public ASTQueryWithOnCluster
 {
 public:
-    std::vector<RowPolicyName> full_names;
+    std::vector<RowPolicy::NameParts> name_parts;
     Strings toStrings() const;
 
     String getID(char) const override { return "RowPolicyNames"; }

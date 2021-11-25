@@ -2,7 +2,7 @@
 
 #include <Parsers/IAST.h>
 #include <Parsers/ASTQueryWithOnCluster.h>
-#include <Access/Common/QuotaDefs.h>
+#include <Access/Quota.h>
 
 
 namespace DB
@@ -35,13 +35,16 @@ public:
     bool if_not_exists = false;
     bool or_replace = false;
 
+    using KeyType = Quota::KeyType;
+    using ResourceAmount = Quota::ResourceAmount;
+
     Strings names;
     String new_name;
-    std::optional<QuotaKeyType> key_type;
+    std::optional<KeyType> key_type;
 
     struct Limits
     {
-        std::optional<QuotaValue> max[static_cast<size_t>(QuotaType::MAX)];
+        std::optional<ResourceAmount> max[Quota::MAX_RESOURCE_TYPE];
         bool drop = false;
         std::chrono::seconds duration = std::chrono::seconds::zero();
         bool randomize_interval = false;

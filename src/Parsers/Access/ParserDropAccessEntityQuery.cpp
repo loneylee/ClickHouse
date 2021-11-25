@@ -12,11 +12,15 @@ namespace DB
 {
 namespace
 {
-    bool parseEntityType(IParserBase::Pos & pos, Expected & expected, AccessEntityType & type)
+    using EntityType = IAccessEntity::Type;
+    using EntityTypeInfo = IAccessEntity::TypeInfo;
+
+
+    bool parseEntityType(IParserBase::Pos & pos, Expected & expected, EntityType & type)
     {
-        for (auto i : collections::range(AccessEntityType::MAX))
+        for (auto i : collections::range(EntityType::MAX))
         {
-            const auto & type_info = AccessEntityTypeInfo::get(i);
+            const auto & type_info = EntityTypeInfo::get(i);
             if (ParserKeyword{type_info.name.c_str()}.ignore(pos, expected)
                 || (!type_info.alias.empty() && ParserKeyword{type_info.alias.c_str()}.ignore(pos, expected)))
             {
@@ -43,7 +47,7 @@ bool ParserDropAccessEntityQuery::parseImpl(Pos & pos, ASTPtr & node, Expected &
     if (!ParserKeyword{"DROP"}.ignore(pos, expected))
         return false;
 
-    AccessEntityType type;
+    EntityType type;
     if (!parseEntityType(pos, expected, type))
         return false;
 
@@ -55,12 +59,12 @@ bool ParserDropAccessEntityQuery::parseImpl(Pos & pos, ASTPtr & node, Expected &
     std::shared_ptr<ASTRowPolicyNames> row_policy_names;
     String cluster;
 
-    if ((type == AccessEntityType::USER) || (type == AccessEntityType::ROLE))
+    if ((type == EntityType::USER) || (type == EntityType::ROLE))
     {
         if (!parseUserNames(pos, expected, names))
             return false;
     }
-    else if (type == AccessEntityType::ROW_POLICY)
+    else if (type == EntityType::ROW_POLICY)
     {
         ParserRowPolicyNames parser;
         ASTPtr ast;

@@ -68,8 +68,6 @@ StoragePtr TableFunctionURL::getStorage(
     for (const auto & [header, value] : configuration.headers)
     {
         auto value_literal = value.safeGet<String>();
-        if (header == "Range")
-            throw Exception(ErrorCodes::BAD_ARGUMENTS, "Range headers are not allowed");
         headers.emplace_back(std::make_pair(header, value_literal));
     }
 

@@ -9,9 +9,8 @@
 #include <Parsers/ExpressionElementParsers.h>
 #include <Parsers/parseDatabaseAndTableName.h>
 #include <Parsers/parseIdentifierOrStringLiteral.h>
-#include <Access/Common/RowPolicyDefs.h>
+#include <Access/RowPolicy.h>
 #include <base/range.h>
-#include <boost/container/flat_set.hpp>
 #include <boost/range/algorithm_ext/push_back.hpp>
 
 
@@ -19,6 +18,11 @@ namespace DB
 {
 namespace
 {
+    using ConditionType = RowPolicy::ConditionType;
+    using ConditionTypeInfo = RowPolicy::ConditionTypeInfo;
+    constexpr auto MAX_CONDITION_TYPE = RowPolicy::MAX_CONDITION_TYPE;
+
+
     bool parseRenameTo(IParserBase::Pos & pos, Expected & expected, String & new_short_name)
     {
         return IParserBase::wrapParseImpl(pos, [&]
@@ -51,7 +55,7 @@ namespace
         });
     }
 
-    bool parseFilterExpression(IParserBase::Pos & pos, Expected & expected, ASTPtr & expr)
+    bool parseConditionalExpression(IParserBase::Pos & pos, Expected & expected, ASTPtr & expr)
     {
         return IParserBase::wrapParseImpl(pos, [&]
         {
@@ -74,9 +78,9 @@ namespace
 
     void addAllCommands(boost::container::flat_set<std::string_view> & commands)
     {
-        for (auto filter_type : collections::range(RowPolicyFilterType::MAX))
+        for (auto condition_type : collections::range(MAX_CONDITION_TYPE))
         {
-            const std::string_view & command = RowPolicyFilterTypeInfo::get(filter_type).command;
+            const std::string_view & command = ConditionTypeInfo::get(condition_type).command;
             commands.emplace(command);
         }
     }
@@ -95,9 +99,9 @@ namespace
                 return true;
             }
 
-            for (auto filter_type : collections::range(RowPolicyFilterType::MAX))
+            for (auto condition_type : collections::range(MAX_CONDITION_TYPE))
             {
-                const std::string_view & command = RowPolicyFilterTypeInfo::get(filter_type).command;
+                const std::string_view & command = ConditionTypeInfo::get(condition_type).command;
                 if (ParserKeyword{command.data()}.ignore(pos, expected))
                 {
                     res_commands.emplace(command);
@@ -116,10 +120,10 @@ namespace
     }
 
 
-    bool parseForClauses(
-        IParserBase::Pos & pos, Expected & expected, bool alter, std::vector<std::pair<RowPolicyFilterType, ASTPtr>> & filters)
+    bool
+    parseForClauses(IParserBase::Pos & pos, Expected & expected, bool alter, std::vector<std::pair<ConditionType, ASTPtr>> & conditions)
     {
-        std::vector<std::pair<RowPolicyFilterType, ASTPtr>> res_filters;
+        std::vector<std::pair<ConditionType, ASTPtr>> res_conditions;
 
         auto parse_for_clause = [&]
         {
@@ -137,12 +141,12 @@ namespace
             std::optional<ASTPtr> check;
             if (ParserKeyword{"USING"}.ignore(pos, expected))
             {
-                if (!parseFilterExpression(pos, expected, filter.emplace()))
+                if (!parseConditionalExpression(pos, expected, filter.emplace()))
                     return false;
             }
             if (ParserKeyword{"WITH CHECK"}.ignore(pos, expected))
             {
-                if (!parseFilterExpression(pos, expected, check.emplace()))
+                if (!parseConditionalExpression(pos, expected, check.emplace()))
                     return false;
             }
 
@@ -152,15 +156,15 @@ namespace
             if (!check && !alter)
                 check = filter;
 
-            for (auto filter_type : collections::range(RowPolicyFilterType::MAX))
+            for (auto condition_type : collections::range(MAX_CONDITION_TYPE))
             {
-                const auto & type_info = RowPolicyFilterTypeInfo::get(filter_type);
+                const auto & type_info = ConditionTypeInfo::get(condition_type);
                 if (commands.count(type_info.command))
                 {
                     if (type_info.is_check && check)
-                        res_filters.emplace_back(filter_type, *check);
+                        res_conditions.emplace_back(condition_type, *check);
                     else if (filter)
-                        res_filters.emplace_back(filter_type, *filter);
+                        res_conditions.emplace_back(condition_type, *filter);
                 }
             }
 
@@ -170,7 +174,7 @@ namespace
         if (!ParserList::parseUtil(pos, expected, parse_for_clause, false))
             return false;
 
-        filters = std::move(res_filters);
+        conditions = std::move(res_conditions);
         return true;
     }
 
@@ -245,11 +249,11 @@ bool ParserCreateRowPolicyQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & 
 
     String new_short_name;
     std::optional<bool> is_restrictive;
-    std::vector<std::pair<RowPolicyFilterType, ASTPtr>> filters;
+    std::vector<std::pair<ConditionType, ASTPtr>> conditions;
 
     while (true)
     {
-        if (alter && (names->full_names.size() == 1) && new_short_name.empty() && parseRenameTo(pos, expected, new_short_name))
+        if (alter && new_short_name.empty() && (names->name_parts.size() == 1) && parseRenameTo(pos, expected, new_short_name))
             continue;
 
         if (!is_restrictive)
@@ -262,10 +266,10 @@ bool ParserCreateRowPolicyQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & 
             }
         }
 
-        std::vector<std::pair<RowPolicyFilterType, ASTPtr>> new_filters;
-        if (parseForClauses(pos, expected, alter, new_filters))
+        std::vector<std::pair<ConditionType, ASTPtr>> new_conditions;
+        if (parseForClauses(pos, expected, alter, new_conditions))
         {
-            boost::range::push_back(filters, std::move(new_filters));
+            boost::range::push_back(conditions, std::move(new_conditions));
             continue;
         }
 
@@ -293,7 +297,7 @@ bool ParserCreateRowPolicyQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & 
     query->names = std::move(names);
     query->new_short_name = std::move(new_short_name);
     query->is_restrictive = is_restrictive;
-    query->filters = std::move(filters);
+    query->conditions = std::move(conditions);
     query->roles = std::move(roles);
 
     return true;

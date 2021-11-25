@@ -26,10 +26,8 @@ JSONRowOutputFormat::JSONRowOutputFormat(
             need_validate_utf8 = true;
 
         WriteBufferFromOwnString buf;
-        {
-            WriteBufferValidUTF8 validating_buf(buf);
-            writeJSONString(fields[i].name, validating_buf, settings);
-        }
+        writeJSONString(fields[i].name, buf, settings);
+
         fields[i].name = buf.str();
     }
 

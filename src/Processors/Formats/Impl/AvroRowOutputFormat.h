@@ -51,13 +51,12 @@ public:
 
     void consume(Chunk) override;
     String getName() const override { return "AvroRowOutputFormat"; }
-
-private:
     void write(const Columns & columns, size_t row_num) override;
     void writeField(const IColumn &, const ISerialization &, size_t) override {}
     virtual void writePrefix() override;
     virtual void writeSuffix() override;
 
+private:
     FormatSettings settings;
     AvroSerializer serializer;
     std::unique_ptr<avro::DataFileWriterBase> file_writer_ptr;

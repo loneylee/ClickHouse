@@ -20,7 +20,6 @@
 #include <regex>
 #include <Common/setThreadName.h>
 #include <Core/MySQL/Authentication.h>
-#include <base/logger_useful.h>
 
 #include <Common/config_version.h>
 

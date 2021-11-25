@@ -94,6 +94,7 @@ namespace fs = std::filesystem;
 namespace ProfileEvents
 {
     extern const Event ContextLock;
+    extern const Event CompiledCacheSizeBytes;
 }
 
 namespace CurrentMetrics
@@ -104,9 +105,14 @@ namespace CurrentMetrics
     extern const Metric BackgroundBufferFlushSchedulePoolTask;
     extern const Metric BackgroundDistributedSchedulePoolTask;
     extern const Metric BackgroundMessageBrokerSchedulePoolTask;
+
+
+    extern const Metric DelayedInserts;
     extern const Metric BackgroundMergesAndMutationsPoolTask;
+    extern const Metric BackgroundMovePoolTask;
     extern const Metric BackgroundFetchesPoolTask;
     extern const Metric BackgroundCommonPoolTask;
+
 }
 
 namespace DB
@@ -307,23 +313,12 @@ struct ContextSharedPart
             return;
         shutdown_called = true;
 
-        /// Stop periodic reloading of the configuration files.
-        /// This must be done first because otherwise the reloading may pass a changed config
-        /// to some destroyed parts of ContextSharedPart.
-        if (access_control)
-            access_control->stopPeriodicReloadingUsersConfigs();
-        if (external_dictionaries_loader)
-            external_dictionaries_loader->enablePeriodicUpdates(false);
-        if (external_user_defined_executable_functions_loader)
-            external_user_defined_executable_functions_loader->enablePeriodicUpdates(false);
-        if (external_models_loader)
-            external_models_loader->enablePeriodicUpdates(false);
-
         Session::shutdownNamedSessions();
 
         /**  After system_logs have been shut down it is guaranteed that no system table gets created or written to.
           *  Note that part changes at shutdown won't be logged to part log.
           */
+
         if (system_logs)
             system_logs->shutdown();
 
@@ -515,23 +510,10 @@ String Context::getUserScriptsPath() const
     return shared->user_scripts_path;
 }
 
-Strings Context::getWarnings() const
+std::vector<String> Context::getWarnings() const
 {
-    Strings common_warnings;
-    {
-        auto lock = getLock();
-        common_warnings = shared->warnings;
-    }
-    for (const auto & setting : settings)
-    {
-        if (setting.isValueChanged() && setting.isObsolete())
-        {
-            common_warnings.emplace_back("Some obsolete setting is changed. "
-                                         "Check 'select * from system.settings where changed' and read the changelog.");
-            break;
-        }
-    }
-    return common_warnings;
+    auto lock = getLock();
+    return shared->warnings;
 }
 
 VolumePtr Context::getTemporaryVolume() const
@@ -588,6 +570,35 @@ VolumePtr Context::setTemporaryStorage(const String & path, const String & polic
          throw Exception("No disks volume for temporary files", ErrorCodes::NO_ELEMENTS_IN_CONFIG);
 
     return shared->tmp_volume;
+}
+
+void Context::setBackupsVolume(const String & path, const String & policy_name)
+{
+    std::lock_guard lock(shared->storage_policies_mutex);
+    if (policy_name.empty())
+    {
+        String path_with_separator = path;
+        if (!path_with_separator.ends_with('/'))
+            path_with_separator += '/';
+        auto disk = std::make_shared<DiskLocal>("_backups_default", path_with_separator, 0);
+        shared->backups_volume = std::make_shared<SingleDiskVolume>("_backups_default", disk, 0);
+    }
+    else
+    {
+        StoragePolicyPtr policy = getStoragePolicySelector(lock)->get(policy_name);
+        if (policy->getVolumes().size() != 1)
+             throw Exception("Policy " + policy_name + " is used for backups, such policy should have exactly one volume",
+                             ErrorCodes::NO_ELEMENTS_IN_CONFIG);
+        shared->backups_volume = policy->getVolume(0);
+    }
+
+    BackupFactory::instance().setBackupsVolume(shared->backups_volume);
+}
+
+VolumePtr Context::getBackupsVolume() const
+{
+    std::lock_guard lock(shared->storage_policies_mutex);
+    return shared->backups_volume;
 }
 
 void Context::setFlagsPath(const String & path)
@@ -784,23 +795,23 @@ std::shared_ptr<const ContextAccess> Context::getAccess() const
     return access ? access : ContextAccess::getFullAccess();
 }
 
-ASTPtr Context::getRowPolicyFilter(const String & database, const String & table_name, RowPolicyFilterType filter_type) const
+ASTPtr Context::getRowPolicyCondition(const String & database, const String & table_name, RowPolicy::ConditionType type) const
 {
     auto lock = getLock();
-    auto row_filter_of_initial_user = row_policies_of_initial_user ? row_policies_of_initial_user->getFilter(database, table_name, filter_type) : nullptr;
-    return getAccess()->getRowPolicyFilter(database, table_name, filter_type, row_filter_of_initial_user);
+    auto initial_condition = initial_row_policy ? initial_row_policy->getCondition(database, table_name, type) : nullptr;
+    return getAccess()->getRowPolicyCondition(database, table_name, type, initial_condition);
 }
 
-void Context::enableRowPoliciesOfInitialUser()
+void Context::setInitialRowPolicy()
 {
     auto lock = getLock();
-    row_policies_of_initial_user = nullptr;
+    initial_row_policy = nullptr;
     if (client_info.initial_user == client_info.current_user)
         return;
     auto initial_user_id = getAccessControl().find<User>(client_info.initial_user);
     if (!initial_user_id)
         return;
-    row_policies_of_initial_user = getAccessControl().tryGetDefaultRowPolicies(*initial_user_id);
+    initial_row_policy = getAccessControl().getEnabledRowPolicies(*initial_user_id, {});
 }
 
 
@@ -882,9 +893,7 @@ const Block * Context::tryGetLocalScalar(const String & name) const
 
 Tables Context::getExternalTables() const
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have external tables");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     auto lock = getLock();
 
     Tables res;
@@ -909,9 +918,7 @@ Tables Context::getExternalTables() const
 
 void Context::addExternalTable(const String & table_name, TemporaryTableHolder && temporary_table)
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have external tables");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     auto lock = getLock();
     if (external_tables_mapping.end() != external_tables_mapping.find(table_name))
         throw Exception("Temporary table " + backQuoteIfNeed(table_name) + " already exists.", ErrorCodes::TABLE_ALREADY_EXISTS);
@@ -921,9 +928,7 @@ void Context::addExternalTable(const String & table_name, TemporaryTableHolder &
 
 std::shared_ptr<TemporaryTableHolder> Context::removeExternalTable(const String & table_name)
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have external tables");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     std::shared_ptr<TemporaryTableHolder> holder;
     {
         auto lock = getLock();
@@ -939,27 +944,21 @@ std::shared_ptr<TemporaryTableHolder> Context::removeExternalTable(const String 
 
 void Context::addScalar(const String & name, const Block & block)
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have scalars");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     scalars[name] = block;
 }
 
 
 void Context::addLocalScalar(const String & name, const Block & block)
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have local scalars");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     local_scalars[name] = block;
 }
 
 
 bool Context::hasScalar(const String & name) const
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have scalars");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     return scalars.count(name);
 }
 
@@ -971,9 +970,7 @@ void Context::addQueryAccessInfo(
     const String & projection_name,
     const String & view_name)
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have query access info");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     std::lock_guard<std::mutex> lock(query_access_info.mutex);
     query_access_info.databases.emplace(quoted_database_name);
     query_access_info.tables.emplace(full_quoted_table_name);
@@ -987,9 +984,7 @@ void Context::addQueryAccessInfo(
 
 void Context::addQueryFactoriesInfo(QueryLogFactories factory_type, const String & created_object) const
 {
-    if (isGlobalContext())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Global context cannot have query factories info");
-
+    assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
     auto lock = getLock();
 
     switch (factory_type)
@@ -2848,10 +2843,6 @@ StorageID Context::resolveStorageIDImpl(StorageID storage_id, StorageNamespace w
     }
 
     bool look_for_external_table = where & StorageNamespace::ResolveExternal;
-    /// Global context should not contain temporary tables
-    if (isGlobalContext())
-        look_for_external_table = false;
-
     bool in_current_database = where & StorageNamespace::ResolveCurrentDatabase;
     bool in_specified_database = where & StorageNamespace::ResolveGlobal;
 
@@ -2869,6 +2860,9 @@ StorageID Context::resolveStorageIDImpl(StorageID storage_id, StorageNamespace w
 
     if (look_for_external_table)
     {
+        /// Global context should not contain temporary tables
+        assert(!isGlobalContext() || getApplicationType() == ApplicationType::LOCAL);
+
         auto resolved_id = StorageID::createEmpty();
         auto try_resolve = [&](ContextPtr context) -> bool
         {
@@ -3089,16 +3083,10 @@ ReadSettings Context::getReadSettings() const
     res.remote_fs_read_max_backoff_ms = settings.remote_fs_read_max_backoff_ms;
     res.remote_fs_read_backoff_max_tries = settings.remote_fs_read_backoff_max_tries;
 
-    res.remote_read_min_bytes_for_seek = settings.remote_read_min_bytes_for_seek;
-
     res.local_fs_buffer_size = settings.max_read_buffer_size;
     res.direct_io_threshold = settings.min_bytes_to_use_direct_io;
     res.mmap_threshold = settings.min_bytes_to_use_mmap_io;
     res.priority = settings.read_priority;
-
-    res.http_max_tries = settings.http_max_tries;
-    res.http_retry_initial_backoff_ms = settings.http_retry_initial_backoff_ms;
-    res.http_retry_max_backoff_ms = settings.http_retry_max_backoff_ms;
 
     res.mmap_cache = getMMappedFileCache().get();
 

@@ -7,7 +7,6 @@
 #include <base/logger_useful.h>
 #include <amqpcpp.h>
 #include <uv.h>
-#include <boost/algorithm/string/split.hpp>
 #include <chrono>
 #include <thread>
 #include <atomic>
@@ -33,7 +32,7 @@ WriteBufferToRabbitMQProducer::WriteBufferToRabbitMQProducer(
         const AMQP::ExchangeType exchange_type_,
         const size_t channel_id_base_,
         const bool persistent_,
-        std::atomic<bool> & shutdown_called_,
+        std::atomic<bool> & wait_confirm_,
         Poco::Logger * log_,
         std::optional<char> delimiter,
         size_t rows_per_message,
@@ -45,7 +44,7 @@ WriteBufferToRabbitMQProducer::WriteBufferToRabbitMQProducer(
         , exchange_type(exchange_type_)
         , channel_id_base(std::to_string(channel_id_base_))
         , persistent(persistent_)
-        , shutdown_called(shutdown_called_)
+        , wait_confirm(wait_confirm_)
         , payloads(BATCH)
         , returned(RETURNED_LIMIT)
         , log(log_)
@@ -256,7 +255,7 @@ void WriteBufferToRabbitMQProducer::publish(ConcurrentBoundedQueue<std::pair<UIn
 
 void WriteBufferToRabbitMQProducer::writingFunc()
 {
-    while ((!payloads.empty() || wait_all) && !shutdown_called.load())
+    while ((!payloads.empty() || wait_all) && wait_confirm.load())
     {
         /// If onReady callback is not received, producer->usable() will anyway return true,
         /// but must publish only after onReady callback.

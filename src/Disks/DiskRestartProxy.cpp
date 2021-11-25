@@ -24,8 +24,6 @@ public:
 
     void setReadUntilPosition(size_t position) override { impl->setReadUntilPosition(position); }
 
-    void setReadUntilEnd() override { impl->setReadUntilEnd(); }
-
 private:
     ReadLock lock;
 };
@@ -41,7 +39,7 @@ public:
     {
         try
         {
-            finalize();
+            RestartAwareWriteBuffer::finalize();
         }
         catch (...)
         {
@@ -49,9 +47,12 @@ public:
         }
     }
 
-    void finalizeImpl() override
+    void finalize() override
     {
-        WriteBufferFromFileDecorator::finalizeImpl();
+        if (finalized)
+            return;
+
+        WriteBufferFromFileDecorator::finalize();
 
         lock.unlock();
     }

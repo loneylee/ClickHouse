@@ -39,6 +39,9 @@ namespace ErrorCodes
     extern const int INCORRECT_ACCESS_ENTITY_DEFINITION;
 }
 
+using EntityType = IAccessStorage::EntityType;
+using EntityTypeInfo = IAccessStorage::EntityTypeInfo;
+
 namespace
 {
     /// Special parser for the 'ATTACH access entity' queries.
@@ -77,7 +80,7 @@ String serializeAccessEntity(const IAccessEntity & entity)
     /// Build list of ATTACH queries.
     ASTs queries;
     queries.push_back(InterpreterShowCreateAccessEntityQuery::getAttachQuery(entity));
-    if ((entity.getType() == AccessEntityType::USER) || (entity.getType() == AccessEntityType::ROLE))
+    if ((entity.getType() == EntityType::USER) || (entity.getType() == EntityType::ROLE))
         boost::range::push_back(queries, InterpreterShowGrantsQuery::getAttachGrantQueries(entity));
 
     /// Serialize the list of ATTACH queries to a string.

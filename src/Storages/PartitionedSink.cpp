@@ -13,8 +13,6 @@
 
 #include <Processors/Sources/SourceWithProgress.h>
 
-#include <boost/algorithm/string/replace.hpp>
-
 
 namespace DB
 {

@@ -17,6 +17,7 @@
 
 namespace DB
 {
+using EntityType = IAccessEntity::Type;
 
 NamesAndTypesList StorageSystemGrants::getNamesAndTypes()
 {
@@ -57,7 +58,7 @@ void StorageSystemGrants::fillData(MutableColumns & res_columns, ContextPtr cont
     auto & column_grant_option = assert_cast<ColumnUInt8 &>(*res_columns[column_index++]).getData();
 
     auto add_row = [&](const String & grantee_name,
-                       AccessEntityType grantee_type,
+                       EntityType grantee_type,
                        AccessType access_type,
                        const String * database,
                        const String * table,
@@ -65,14 +66,14 @@ void StorageSystemGrants::fillData(MutableColumns & res_columns, ContextPtr cont
                        bool is_partial_revoke,
                        bool grant_option)
     {
-        if (grantee_type == AccessEntityType::USER)
+        if (grantee_type == EntityType::USER)
         {
             column_user_name.insertData(grantee_name.data(), grantee_name.length());
             column_user_name_null_map.push_back(false);
             column_role_name.insertDefault();
             column_role_name_null_map.push_back(true);
         }
-        else if (grantee_type == AccessEntityType::ROLE)
+        else if (grantee_type == EntityType::ROLE)
         {
             column_user_name.insertDefault();
             column_user_name_null_map.push_back(true);
@@ -122,7 +123,7 @@ void StorageSystemGrants::fillData(MutableColumns & res_columns, ContextPtr cont
     };
 
     auto add_rows = [&](const String & grantee_name,
-                        AccessEntityType grantee_type,
+                        IAccessEntity::Type grantee_type,
                         const AccessRightsElements & elements)
     {
         for (const auto & element : elements)

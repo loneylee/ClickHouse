@@ -31,7 +31,7 @@ void CSVRowOutputFormat::writeLine(const std::vector<String> & values)
     }
 }
 
-void CSVRowOutputFormat::writePrefix()
+void CSVRowOutputFormat::doWritePrefix()
 {
     const auto & sample = getPort(PortKind::Main).getHeader();
 

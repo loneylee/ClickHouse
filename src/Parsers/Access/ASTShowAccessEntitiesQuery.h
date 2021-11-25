@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Parsers/ASTQueryWithOutput.h>
-#include <Access/Common/AccessEntityType.h>
+#include <Access/IAccessEntity.h>
 
 
 namespace DB
@@ -16,7 +16,9 @@ namespace DB
 class ASTShowAccessEntitiesQuery : public ASTQueryWithOutput
 {
 public:
-    AccessEntityType type;
+    using EntityType = IAccessEntity::Type;
+
+    EntityType type;
 
     bool all = false;
     bool current_quota = false;

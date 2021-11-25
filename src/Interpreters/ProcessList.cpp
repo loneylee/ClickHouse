@@ -3,7 +3,6 @@
 #include <Interpreters/Context.h>
 #include <Interpreters/DatabaseAndTableWithAlias.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
-#include <Parsers/ASTSelectIntersectExceptQuery.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTKillQueryQuery.h>
 #include <Parsers/queryNormalization.h>
@@ -15,11 +14,6 @@
 #include <base/logger_useful.h>
 #include <chrono>
 
-
-namespace CurrentMetrics
-{
-    extern const Metric Query;
-}
 
 namespace DB
 {

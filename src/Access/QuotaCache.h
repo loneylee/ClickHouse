@@ -11,9 +11,7 @@
 namespace DB
 {
 class AccessControl;
-struct Quota;
-using QuotaPtr = std::shared_ptr<const Quota>;
-struct RolesOrUsersSet;
+
 
 /// Stores information how much amount of resources have been consumed and how much are left.
 class QuotaCache
