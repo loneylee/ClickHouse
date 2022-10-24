@@ -1,0 +1,32 @@
+# # Thriftserver Connection
+thrift
+thrift-sasl
+sasl
+#
+# # Testing and reporting
+# allure-pytest
+pytest~=7.1.3
+# pytest-dotenv
+
+# Load testing
+locust~=2.12.2
+locust-plugins~=2.6.11
+# # Regression testing
+# pytest-regressions
+#
+# # Benchmarking
+# pytest-benchmark[histogram]
+#
+# # Correctness testing
+# sqlalchemy
+# pandas
+#
+# # Browser and screenshots
+# pillow
+# pytest-splinter
+
+numpy
+seaborn
+clickhouse-driver
+
+gevent~=22.10.1
