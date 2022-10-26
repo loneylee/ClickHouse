@@ -28,5 +28,5 @@ locust-plugins~=2.6.11
 numpy
 seaborn
 clickhouse-driver
-
+pyhive
 gevent~=22.10.1
