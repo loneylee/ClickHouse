@@ -8,7 +8,8 @@ fi
 key_file=$1
 
 echo "$(date '+%F %T'): GlutenWithCHStandard clean work start!"
-ansible --key-file ${key_file} tcluster -m shell -a "jps|awk '{print \$1}'|xargs kill -9"
+ansible --key-file ${key_file} driver -m shell -a "jps|awk '{print \$1}'|xargs kill -9"
+ansible --key-file ${key_file} workers -m shell -a "jps|grep -i worker|awk '{print \$1}'|xargs kill -9"
 ansible --key-file ${key_file} driver -m shell -a "ps -ef|grep test.py|grep -v grep|awk '{print \$2}'|xargs kill -9"
 
 ansible --key-file ${key_file} tcluster -m shell -a "ps -ef|grep java|grep -v grep"

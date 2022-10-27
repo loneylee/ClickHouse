@@ -69,13 +69,13 @@ do
 
 	#check if need to setup ansible and make a config
 	bash ./setupAnsible.sh ${key_file} ${driver_host} ${worker_hosts}
-	if [ $? -ne 0 ];then
+	if [ \$? -ne 0 ];then
 		exit 1
 	fi
 
 	#check if need to setup java env
 	bash ./setupJava.sh ${key_file}
-	if [ $? -ne 0 ];then
+	if [ \$? -ne 0 ];then
         	exit 1
 	fi
 
@@ -117,7 +117,8 @@ do
 	source var${sv}.conf
 	#check if need to setup spark and start service
 	bash ./setup${sv}.sh ${key_file} ${driver_host}
-	if [ $? -ne 0 ];then
+	if [ \$? -ne 0 ];then
+		echo setup wrong
         	exit 1
 	fi
 
@@ -127,7 +128,7 @@ do
 	cd ${locust_home}
 	mkdir -p result
 	python3 ./test.py --iterations 10 --dialect-path ${sqls_home} --output-file ./result/${sv}_$(date '+%Y-%m-%d-%H-%M-%S').csv -p 10000 --engine hive --host ${driver_host} --user root --password root
-	if [ $? -ne 0 ];then
+	if [ \$? -ne 0 ];then
         	exit 1
 	fi
 
@@ -135,11 +136,10 @@ do
 	#clean work
 	cd ${script_home}
 	bash ./clean${sv}.sh ${key_file} 
-	if [ $? -ne 0 ];then
+	if [ \$? -ne 0 ];then
         	exit 1
 	fi
 
-	#service test loop end
 EOF
 	echo "$(date '+%F %T'): service ${sv} test is done"
 	echo ""
