@@ -103,61 +103,51 @@ done
 
 #service test loop start
 echo "$(date '+%F %T'): service test loop start"
-for worker in ${wHostsArr[@]}
+for sv in ${service[@]}
 do
-        echo -e "${worker}" >> /etc/ansible/hosts
-done
+	echo "$(date '+%F %T'): service to test is ${sv}"
+	source ${main_script_dir}/services/var${sv}.conf
 
-source ${main_script_dir}/services/varGlutenWithCHStandard.conf
-##get test data set from s3 bucket on driver and dispatch to all workers,tbd
-
-#copy gluten jar and libch.so to driver and dispatch to all workers,tbd
-#check if exists ,if not,scp,tbd
-ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host} "ls -hl ${gluten_standard_jar}"
-if [ $? -ne 0 ];then
-	echo "$(date '+%F %T'): ${gluten_standard_jar} does not exist,need upload to driver!"
-	scp -i ${local_key_file} ${local_gluten_standard_jar} ${cloud_vm_user}@${driver_host}:${gluten_standard_jar}
-fi
-ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host} "ls -hl ${libch_standard_so}"
-if [ $? -ne 0 ];then
-        echo "$(date '+%F %T'): ${libch_standard_so} does not exist,need upload to driver!"
-	scp -i ${local_key_file} ${local_libch_standard_so} ${cloud_vm_user}@${driver_host}:${libch_standard_so}
-fi
+	#copy gluten jar and libch.so to driver
+	bash ${main_script_dir}/services/uploadPackageFromCI${sv}.sh ${local_key_file} ${cloud_vm_user} ${driver_host}
 
 
-ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host}  << EOF
-cd ${script_home}
-
-#check if need to setup spark and start service
-bash ./setupGlutenWithCHStandard.sh ${key_file} ${spark_bin_url} ${gluten_standard_jar} ${libch_standard_so} ${driver_host} ${spark_base} ${spark_home}
-if [ $? -ne 0 ];then
-        exit 1
-fi
-
-
-#call locust script,tbd
-echo "$(date '+%F %T'): call call locust script"
-cd ${locust_home}
-mkdir -p result
-python3 ./test.py --iterations 10 --dialect-path ${sqls_home} --output-file ./result/GlutenWithCHStandard_$(date '+%Y-%m-%d-%H-%M-%S').csv -p 10000 --engine hive --host ${driver_host} --user root --password root
-if [ $? -ne 0 ];then
-        exit 1
-fi
+	ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host}  << EOF
+	cd ${script_home}
+	source var${sv}.conf
+	#check if need to setup spark and start service
+	bash ./setup${sv}.sh ${key_file} ${driver_host}
+	if [ $? -ne 0 ];then
+        	exit 1
+	fi
 
 
-#clean work
-cd ${script_home}
-bash ./cleanGlutenWithCHStandard.sh ${key_file} 
-if [ $? -ne 0 ];then
-        exit 1
-fi
+	#call locust script,tbd
+	echo "$(date '+%F %T'): call call locust script"
+	cd ${locust_home}
+	mkdir -p result
+	python3 ./test.py --iterations 10 --dialect-path ${sqls_home} --output-file ./result/${sv}_$(date '+%Y-%m-%d-%H-%M-%S').csv -p 10000 --engine hive --host ${driver_host} --user root --password root
+	if [ $? -ne 0 ];then
+        	exit 1
+	fi
 
-#service test loop end
 
+	#clean work
+	cd ${script_home}
+	bash ./clean${sv}.sh ${key_file} 
+	if [ $? -ne 0 ];then
+        	exit 1
+	fi
+
+	#service test loop end
 EOF
+	echo "$(date '+%F %T'): service ${sv} test is done"
+	echo ""
+	echo ""
 
+done #service test loop done
 
-#upload result to conbench,tbd
+#upload all results to conbench,tbd
 echo "$(date '+%F %T'): upload result to conbench"
 
 #shutdown cloud vms using ansible plugin,suppose CI VM has secret key to access cloud vms ,tbd
