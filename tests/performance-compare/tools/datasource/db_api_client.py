@@ -1,12 +1,19 @@
 import os
+import sys
 import time
 from abc import abstractmethod, ABCMeta
 
 from common import config
 
+import gevent
+
 
 def init_stmt(root_path):
     stmts = {}
+
+    if not os.path.exists(root_path):
+        return stmts
+
     for file_name in os.listdir(root_path):
         full_path = os.path.join(root_path, file_name)
         if os.path.isfile(full_path) and file_name.endswith(".sql"):
@@ -24,7 +31,13 @@ class DBApiClient(metaclass=ABCMeta):
         for k in other:
             if self.stmt[k]:
                 self.stmt[k] = other[k]
-        self.connection = self.create_connection()
+
+        # self.connection = self.create_connection()
+        try:
+            self.connection = self.create_connection()
+        except Exception as e:
+            print(e)
+            sys.exit(-1)
 
     @abstractmethod
     def create_connection(self):

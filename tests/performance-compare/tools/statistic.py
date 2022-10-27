@@ -7,10 +7,11 @@ from core import locust_test
 
 parser = argparse.ArgumentParser(description='command line arguments')
 parser.add_argument('--iterations', '-i', type=int,
-                    help='Iteration limit , stops Locust after a certain number of task iterations', required=False)
-parser.add_argument('--output-file', '-o', type=str, help='', required=False)
-parser.add_argument('--engine', "-e", type=str, help='engine', required=False)
-parser.add_argument('--dialect-path', type=str, help='dialect root path', required=False)
+                    help='Iteration limit , stops Locust after a certain number of task iterations', required=False,
+                    default=7)
+parser.add_argument('--output-file', '-o', type=str, help='', required=True)
+parser.add_argument('--engine', "-e", type=str, help='engine', required=True)
+parser.add_argument('--dialect-path', type=str, help='dialect root path', required=True)
 parser.add_argument('--host', type=str, help='host', required=False,
                     default=os.getenv("TEST_CONNECTION_HOST", "localhost"))
 parser.add_argument('--port', '-p', type=int, help='port', required=False,
