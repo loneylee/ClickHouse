@@ -1,21 +1,16 @@
 #!/bin/bash
 
 
-if [ $# -ne 7 ];then
-        echo "Usage: ./setupGlutenWithCHStandard.sh key_file spark_bin_url gluten_jar_path libch_path spark_master_ip spark_base spark_home"
+if [ $# -ne 2 ];then
+        echo "Usage: ./setupGlutenWithCHStandard.sh key_file spark_master_ip"
         exit 1
 fi
-#./setupGlutenWithCHStandard.sh /home/ubuntu/ckops-awscn.pem spark_bin_url gluten_jar_path /home/ubuntu/libch.so localhost /home/admin123/glutenTest/spark /home/admin123/glutenTest/spark/spark-3.2.2-bin-hadoop2.7
+#./setupGlutenWithCHStandard.sh /home/ubuntu/ckops-awscn.pem localhost
 
 echo "$(date '+%F %T'): setup GlutenWithCHStandard service"
 
 key_file=$1
-spark_bin_url=$2
-gluten_jar_path=$3
-libch_path=$4
-spark_master_ip=$5
-spark_base=$6
-spark_home=$7
+spark_master_ip=$2
 
 #spark version is a variable
 ansible --key-file ${key_file} tcluster -m shell -a "mkdir -p ${spark_base}"
@@ -29,9 +24,9 @@ if [ ! -d "${spark_home}" ];then
 	#dispatch to all nodes
 	ansible --key-file ${key_file} workers -m copy -a "src=spark-3.2.2-bin-hadoop2.7.tgz dest=${spark_base}"
 	ansible --key-file ${key_file} tcluster -m shell -a "cd ${spark_base};tar -xzvf spark-3.2.2-bin-hadoop2.7.tgz"
-	ansible --key-file ${key_file} tcluster -m shell -a "cd ${spark_home}/jars;rm -f protobuf-java-2.5.0.jar;wget https://repo1.maven.org/maven2/com/google/protobuf/protobuf-java/3.13.0/protobuf-java-3.13.0.jar;wget https://repo1.maven.org/maven2/io/delta/delta-core_2.12/1.2.1/delta-core_2.12-1.2.1.jar;wget https://repo1.maven.org/maven2/io/delta/delta-storage/1.2.1/delta-storage-1.2.1.jar"
-	ansible --key-file ${key_file} tcluster -m copy -a "src=${gluten_jar_path} dest=${spark_home}/jars/"
-	ansible --key-file ${key_file} workers  -m copy -a "src=${libch_path} dest=${libch_path}"
+	ansible --key-file ${key_file} tcluster -m shell -a "cd ${spark_home}/jars;rm -f protobuf-java-2.5.0.jar gluten*.jar;wget https://repo1.maven.org/maven2/com/google/protobuf/protobuf-java/3.13.0/protobuf-java-3.13.0.jar;wget https://repo1.maven.org/maven2/io/delta/delta-core_2.12/1.2.1/delta-core_2.12-1.2.1.jar;wget https://repo1.maven.org/maven2/io/delta/delta-storage/1.2.1/delta-storage-1.2.1.jar"
+	ansible --key-file ${key_file} tcluster -m copy -a "src=${gluten_standard_jar} dest=${spark_home}/jars/"
+	ansible --key-file ${key_file} workers  -m copy -a "src=${libch_standard_so} dest=${libch_standard_so}"
 	
 fi
 
@@ -71,7 +66,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.plugins=io.glutenproject.GlutenPlugin \
   --conf spark.gluten.sql.columnar.columnartorow=true \
   --conf spark.gluten.sql.columnar.loadnative=true \
-  --conf spark.gluten.sql.columnar.libpath=${libch_path} \
+  --conf spark.gluten.sql.columnar.libpath=${libch_standard_so} \
   --conf spark.gluten.sql.columnar.iterator=true \
   --conf spark.gluten.sql.columnar.loadarrow=false \
   --conf spark.gluten.sql.columnar.backend.lib=ch \

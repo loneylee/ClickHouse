@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ $# -ne 1 ];then
-	echo “Usage: ./setupJava.sh key_file”
+	echo "Usage: ./setupJava.sh key_file"
 	exit 1
 fi
 
@@ -24,4 +24,4 @@ if [ $? -ne 0 ];then
 	exit 103
 fi
 
-cho "$(date '+%F %T'): java setup well!"
+echo "$(date '+%F %T'): java setup well!"
