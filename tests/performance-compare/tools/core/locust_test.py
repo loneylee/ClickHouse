@@ -53,7 +53,7 @@ def run():
     # start the test
     env.runner.start(1, spawn_rate=1)
     # in 60 seconds stop the runner
-    # gevent.spawn_later(1, lambda: env.runner.quit())
+    gevent.spawn_later(1, lambda: env.runner.quit())
     # wait for the greenlets
     env.runner.greenlet.join()
 

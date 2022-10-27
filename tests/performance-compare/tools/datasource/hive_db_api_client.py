@@ -18,7 +18,10 @@ class HiveDBApiClient(db_api_client.DBApiClient):
         super().__init__(environment)
 
     def create_connection(self):
-        return hive.Connection(database=config.CONNECTION_DATABASE, username=config.CONNECTION_USER,
+        password = None
+        if config.CONNECTION_PASSWORD != "":
+            password = config.CONNECTION_PASSWORD
+        return hive.Connection(database=config.CONNECTION_DATABASE, username=config.CONNECTION_USER, password=password,
                                host=config.CONNECTION_HOST,
                                port=config.CONNECTION_PORT)
 
