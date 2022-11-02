@@ -22,8 +22,5 @@ class ClickhouseDBApiClient(db_api_client.DBApiClient):
                              password=config.CONNECTION_PASSWORD, host=config.CONNECTION_HOST,
                              port=config.CONNECTION_PORT)
 
-    def overwrite_stmt(self):
-        return db_api_client.init_stmt(os.path.join(config.DIALECT_ROOT_PATH, SQL_DIALECT))
-
-    def get_stmt(self):
-        return self.stmt
+    def get_dialect(self):
+        return SQL_DIALECT

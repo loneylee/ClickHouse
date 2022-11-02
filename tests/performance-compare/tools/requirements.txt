@@ -32,3 +32,6 @@ seaborn~=0.12.1
 clickhouse-driver~=0.2.4
 
 gevent~=22.10.1
+configparser~=5.3.0
+PyMySQL~=1.0.2
+

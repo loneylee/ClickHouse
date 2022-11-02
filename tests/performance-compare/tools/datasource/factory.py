@@ -1,12 +1,19 @@
+import logging
+import sys
+
 from common import config
-from datasource import clickhouse_db_api_client
-from datasource import hive_db_api_client
+from datasource import clickhouse
+from datasource import spark
+from datasource import starrocks
 
 
 def get_client(environment):
-    if config.ENGINE == clickhouse_db_api_client.SQL_DIALECT:
-        return clickhouse_db_api_client.ClickhouseDBApiClient(environment)
-    elif config.ENGINE == hive_db_api_client.SQL_DIALECT:
-        return hive_db_api_client.HiveDBApiClient(environment)
+    if config.ENGINE == clickhouse.SQL_DIALECT:
+        return clickhouse.ClickhouseDBApiClient(environment)
+    elif config.ENGINE == spark.SQL_DIALECT:
+        return spark.SparkDBApiClient(environment)
+    elif config.ENGINE == starrocks.SQL_DIALECT:
+        return starrocks.StarrocksDBApiClient(environment)
     else:
-        return clickhouse_db_api_client.ClickhouseDBApiClient(environment)
+        logging.getLogger("Engine").error("dialect {} not support", config.ENGINE)
+        sys.exit(10)

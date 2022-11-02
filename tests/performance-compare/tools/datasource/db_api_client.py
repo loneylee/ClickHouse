@@ -5,11 +5,10 @@ from abc import abstractmethod, ABCMeta
 
 from common import config
 
-import gevent
 
-
-def init_stmt(root_path):
+def init_stmt(dialect):
     stmts = {}
+    root_path = os.path.join(config.DIALECT_ROOT_PATH, dialect)
 
     if not os.path.exists(root_path):
         return stmts
@@ -26,13 +25,11 @@ def init_stmt(root_path):
 class DBApiClient(metaclass=ABCMeta):
     def __init__(self, environment):
         self.env = environment
-        self.stmt = init_stmt(os.path.join(config.DIALECT_ROOT_PATH, config.DEFAULT_DIALECT))
-        other = self.overwrite_stmt()
+        self.stmt = init_stmt(config.DEFAULT_DIALECT)
+        other = init_stmt(self.get_dialect())
         for k in other:
             if self.stmt[k]:
                 self.stmt[k] = other[k]
-
-        # self.connection = self.create_connection()
         try:
             self.connection = self.create_connection()
         except Exception as e:
@@ -75,5 +72,5 @@ class DBApiClient(metaclass=ABCMeta):
         return "success"
 
     @abstractmethod
-    def overwrite_stmt(self):
+    def get_dialect(self):
         pass
