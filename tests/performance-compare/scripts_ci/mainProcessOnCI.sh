@@ -3,26 +3,65 @@
 #basic environment/services preparation and locust perf test scripts are all called on cloud vms,not on local ci vm for permission casue(need run sudo to config ansible and run apt-get install)
 echo "$(date '+%F %T'): begin perf test!"
 
-#start remote cloud vms using ansible plugin,suppose CI VM has secret key to access cloud vms ,tbd
-echo "$(date '+%F %T'): start cloud vms!"
-
-#get driver and workers host IP via cloud api,tbd,write constances temporally for test convenience
-echo "$(date '+%F %T'): driver and workers host IP via cloud api!"
-driver_host='10.198.57.212'
-worker_hosts='10.198.55.236'
-
-#on driver, open port 10000 for spark thrift server, 12222 for spark history server,via cloud api or manually,tbd
-echo "$(date '+%F %T'): on driver, open port 10000 for spark thrift server, 12222 for spark history server,via cloud api or manually"
-
 #get config from conf file
 echo "$(date '+%F %T'): source common variable, file mainProcessOnCI.conf"
 main_script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source ${main_script_dir}/mainProcessOnCI.conf 
+source ${main_script_dir}/mainProcessOnCI.conf
+
+
+driver_host=''
+private_driver_host=''
+private_worker_hosts='' #comma seperated string list
+
+#start remote cloud vms,suppose CI VM has secret key to access cloud vms
+echo "$(date '+%F %T'): start hdfs and cloud vms!"
+if [ ${run_mode} = "local" ];then
+	driver_host='10.198.57.212'
+	private_driver_host='10.198.57.212'
+	private_worker_hosts='10.198.55.236'
+	echo "$(date '+%F %T'): test run on local"
+elif [ ${run_mode} = "aws" ];then
+	echo "$(date '+%F %T'): test run on aws"
+	<< comment
+	bash ${main_script_dir}/startAWSEMR.sh ${local_key_file} ${emr_namenode_user} ${emr_start_waiting_time_s}
+	if [ $? -ne 0 ];then
+        	echo "$(date '+%F %T'): start cloud hdfs failed!"
+        	exit 1
+	fi
+	#export emr_cluster_id
+	#export private_namenode_ip
+	#export namenode_ip
+	namenode_ip=$(cat /tmp/namenode_ip)
+
+
+	#get data from s3 and load to hdfs
+	echo "$(date '+%F %T'): download data from s3 on namenode and upload to hdfs"
+	echo "bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}"
+	bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}
+	echo "$(date '+%F %T'): prepare data ready"	
+#	sleep 10000
+
+comment
+
+	bash ${main_script_dir}/startAWSVMs.sh
+	#check status,to be done
+	driver_host=$(bash ${main_script_dir}/getAWSVmIP.sh public driver)
+	private_driver_host=$(bash ${main_script_dir}/getAWSVmIP.sh private driver)
+	private_worker_hosts=$(bash ${main_script_dir}/getAWSVmIP.sh  private workers)
+elif [ ${run_mode} = "gcp" ];then
+	echo "$(date '+%F %T'): test run on gcp,to be done"
+	exit 0
+else
+	echo "$(date '+%F %T'): not support test run mode ${run_mode}"
+	exit 1
+fi
+
+echo "$(date '+%F %T'): driver_host:${driver_host} private_driver_host:${private_driver_host} private_worker_hosts:${private_worker_hosts}"
 
 
 #put secret pem(key file) to driver host.First remove then upload,or there will be a "Permission denied" error
 echo "$(date '+%F %T'): put secret pem(key file) to driver host.First remove then upload"
-ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host} "rm ${key_file}"
+ssh -o StrictHostKeyChecking=no -i ${local_key_file} ${cloud_vm_user}@${driver_host} "rm ${key_file}"
 scp -i ${local_key_file} ${local_key_file} ${cloud_vm_user}@${driver_host}:${key_file}
 
 
@@ -51,9 +90,9 @@ echo "$(date '+%F %T'): copy sqls to driver"
 ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host} "rm -rf ${sqls_home};mkdir -p ${sqls_home}"
 scp -i ${local_key_file} -r ${local_sqls_home}/* ${cloud_vm_user}@${driver_host}:${sqls_home}/
 
-#get test data set from s3 bucket on driver and dispatch to all workers,tbd
-#no need to download data if exists
-echo "$(date '+%F %T'): get test data set from s3 bucket on driver and dispatch to all workers"
+
+#check if need to prepare data for hdfs
+echo "$(date '+%F %T'): prepare data for hdfs"
 
 #do setup basic env,all ops are on driver host
 echo "$(date '+%F %T'): do setup basic env,all ops are on driver host"
@@ -68,7 +107,7 @@ do
 	cd ${script_home}
 
 	#check if need to setup ansible and make a config
-	bash ./setupAnsible.sh ${key_file} ${driver_host} ${worker_hosts}
+	bash ./setupAnsible.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
 	if [ \$? -ne 0 ];then
 		exit 1
 	fi
@@ -82,8 +121,8 @@ do
 	#check if need to setup s3client env,tbd
 
 	#check if need to setup locust env
-	sudo apt install -y python3-pip
-	sudo apt-get install libsasl2-dev
+	sudo apt-get install -y python3-pip
+	sudo apt-get install -y libsasl2-dev
 	pip install -r ${locust_home}/requirements.txt
 
 	#pull up conbench service 
@@ -116,19 +155,22 @@ do
 	cd ${script_home}
 	source var${sv}.conf
 	#check if need to setup spark and start service
-	bash ./setup${sv}.sh ${key_file} ${driver_host}
+	bash ./setup${sv}.sh ${key_file} ${private_driver_host}
 	if [ \$? -ne 0 ];then
 		echo setup wrong
+		cd ${script_home}
+		bash ./clean${sv}.sh ${key_file}
         	exit 1
-	fi
-
+	fi       
 
 	#call locust script,tbd
 	echo "$(date '+%F %T'): call call locust script"
 	cd ${locust_home}
 	mkdir -p result
-	python3 ./test.py --iterations 10 --dialect-path ${sqls_home} --output-file ./result/${sv}_$(date '+%Y-%m-%d-%H-%M-%S').csv -p 10000 --engine hive --host ${driver_host} --user root --password root
+	python3 ./test.py --iterations 10 --dialect-path ${sqls_home} --output-file ${result_home}/${sv}_$(date '+%Y-%m-%d-%H-%M-%S').csv -p 10000 --engine hive --host ${private_driver_host} --user root --password root
 	if [ \$? -ne 0 ];then
+		cd ${script_home}
+		bash ./clean${sv}.sh ${key_file}
         	exit 1
 	fi
 
@@ -141,6 +183,10 @@ do
 	fi
 
 EOF
+	if [ $? -ne 0 ];then
+		echo "$(date '+%F %T'): service ${sv} test wrong,exit"
+		break
+	fi
 	echo "$(date '+%F %T'): service ${sv} test is done"
 	echo ""
 	echo ""
@@ -151,6 +197,15 @@ done #service test loop done
 echo "$(date '+%F %T'): upload result to conbench"
 
 #shutdown cloud vms using ansible plugin,suppose CI VM has secret key to access cloud vms ,tbd
-echo "$(date '+%F %T'): shutdown cloud vms!"
+echo "$(date '+%F %T'): shutdown cloud vms and hdfs cluster!"
+if [ ${run_mode} = "aws" ];then
+	emr_cluster_id=$(cat /tmp/emr_cluster_id)
+	bash ${main_script_dir}/stopAWSVMs.sh
+	bash ${main_script_dir}/stopAWSEMR.sh ${emr_cluster_id}
+elif [ ${run_mode} = "gcp" ];then
+	echo "$(date '+%F %T'): stop vms on gcp to be done"
+else
+	echo "$(date '+%F %T'): stop failed,not supported run mode:${run_mode}"
+fi
 
 echo "$(date '+%F %T'): end perf test!"

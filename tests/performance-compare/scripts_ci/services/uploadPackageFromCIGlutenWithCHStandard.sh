@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ $# -ne 1 ];then
+if [ $# -ne 3 ];then
         echo "Usage: ./uploadPackageFromCIGlutenWithCHStandard.sh local_key_file cloud_vm_user driver_host"
         exit 1
 fi
