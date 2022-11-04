@@ -20,13 +20,16 @@ echo "$(date '+%F %T'): setup spark node environment"
 if [ ! -d "${spark_home}" ];then 
 	echo "$(date '+%F %T'): Spark not found,start downloading" 
 	cd ${spark_base}
-	wget ${spark_bin_url}
+	ls -hl ~/spark-3.2.2-bin-hadoop2.7.tgz
+	if [ $? -ne 0 ];then
+		wget ${spark_bin_url}
+	else
+		cp ~/spark-3.2.2-bin-hadoop2.7.tgz ./
+	fi
 	#dispatch to all nodes
 	ansible --key-file ${key_file} workers -m copy -a "src=spark-3.2.2-bin-hadoop2.7.tgz dest=${spark_base}"
 	ansible --key-file ${key_file} tcluster -m shell -a "cd ${spark_base};tar -xzvf spark-3.2.2-bin-hadoop2.7.tgz"
 	ansible --key-file ${key_file} tcluster -m shell -a "cd ${spark_home}/jars;rm -f protobuf-java-2.5.0.jar;wget https://repo1.maven.org/maven2/com/google/protobuf/protobuf-java/3.13.0/protobuf-java-3.13.0.jar;wget https://repo1.maven.org/maven2/io/delta/delta-core_2.12/1.2.1/delta-core_2.12-1.2.1.jar;wget https://repo1.maven.org/maven2/io/delta/delta-storage/1.2.1/delta-storage-1.2.1.jar"
-	ansible --key-file ${key_file} tcluster -m copy -a "src=${gluten_standard_jar} dest=${spark_home}/jars/"
-	ansible --key-file ${key_file} workers  -m copy -a "src=${libch_standard_so} dest=${libch_standard_so}"
 	
 fi
 
@@ -50,9 +53,9 @@ echo "$(date '+%F %T'): start thrift server"
 #start thrift server
 ./sbin/start-thriftserver.sh \
   --master spark://${spark_master_ip}:7077 --deploy-mode client \
-  --driver-memory 30g --driver-cores 6 \
+  --driver-memory 8g --driver-cores 3 \
   --total-executor-cores 30 --executor-memory 30g --executor-cores 15 \
-  --conf spark.driver.memoryOverhead=8G \
+  --conf spark.driver.memoryOverhead=4G \
   --conf spark.serializer=org.apache.spark.serializer.JavaSerializer \
   --conf spark.default.parallelism=120 \
   --conf spark.sql.shuffle.partitions=120 \
