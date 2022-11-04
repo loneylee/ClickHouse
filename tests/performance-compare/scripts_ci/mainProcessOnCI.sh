@@ -106,6 +106,12 @@ do
 	ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host}  << EOF
 	cd ${script_home}
 
+	#check if need to setup mysql
+	bash ./setupMysql.sh
+  if [ \$? -ne 0 ];then
+    exit 1
+  fi
+
 	#check if need to setup ansible and make a config
 	bash ./setupAnsible.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
 	if [ \$? -ne 0 ];then

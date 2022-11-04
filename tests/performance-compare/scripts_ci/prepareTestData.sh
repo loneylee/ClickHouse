@@ -14,8 +14,9 @@ s3_data_source_home=$5
 namenode_data_tmp=$6
 data_type=$7
 
-echo "$(date '+%F %T'): install awscli"
-sudo yum install -y aws-cli
+#echo "$(date '+%F %T'): install awscli"
+#sudo yum install -y aws-cli
+
 echo "$(date '+%F %T'): upload awscli config file"
 scp -i ${local_key_file} -r ${local_aws_config_dir} ${emr_namenode_user}@${namenode_ip}:~/
 
