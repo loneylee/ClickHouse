@@ -12,6 +12,8 @@ from common import config
 from common import csv
 from datasource import factory
 
+log = config.log
+
 
 # from gevent import monkey
 # monkey.patch_all(thread=False)
@@ -27,9 +29,17 @@ class ABUser(User):
 # The real user class that will be instantiated and run by Locust
 # This is the only thing that is actually specific to the service that we are testing.
 class GlutenUser(ABUser):
+    def __init__(self, environment):
+        super().__init__(environment)
+        self.client = factory.get_client(environment)
+        self.client.create_connection()
+
     @task
     def query(self):
-        self.client.query()
+        if config.ONLY_CREATE_TABLE:
+            log.info("Skip running queries")
+        else:
+            self.client.query()
 
 
 # if launched directly, e.g. "python3 debugging.py", not "locust -f debugging.py"
@@ -55,7 +65,7 @@ def run():
     # start the test
     env.runner.start(1, spawn_rate=1)
     # in 60 seconds stop the runner
-    gevent.spawn_later(1, lambda: env.runner.quit())
+    # gevent.spawn_later(1, lambda: env.runner.quit())
     # wait for the greenlets
     env.runner.greenlet.join()
 

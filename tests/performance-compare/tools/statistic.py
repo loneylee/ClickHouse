@@ -1,5 +1,4 @@
 import argparse
-import os
 import sys
 
 from common import config
@@ -10,22 +9,25 @@ parser.add_argument('--iterations', '-i', type=int,
                     help='Iteration limit , stops Locust after a certain number of task iterations', required=False,
                     default=7)
 parser.add_argument('--output-dir', '-o', type=str, help='', required=True)
-parser.add_argument('--client', "-c", type=str, help='used connection client, eg. mysql, clickhouse, hive',
+parser.add_argument('--engine', "-e", type=str, help='used connection engine, eg. mysql, clickhouse, hive, starrocks',
                     required=True)
 parser.add_argument('--sql-path', type=str, help='sql full path which search sql dialect. eg. /temp', required=True)
 parser.add_argument('--dialect', type=str,
                     help='dialect. Will find sql in {sql-path}/{dialect}/. Support starrocks, clickhouse, ansi',
                     default="ansi")
 parser.add_argument('--host', type=str, help='host', required=False,
-                    default=os.getenv("TEST_CONNECTION_HOST", "localhost"))
+                    default="localhost")
 parser.add_argument('--port', '-p', type=int, help='port', required=False,
-                    default=os.getenv("TEST_CONNECTION_PORT", 80))
+                    default=80)
 parser.add_argument('--user', '-u', type=str, help='user', required=False,
-                    default=os.getenv("TEST_CONNECTION_USER", "default"))
+                    default="")
 parser.add_argument('--password', type=str, help='password', required=False,
-                    default=os.getenv("TEST_CONNECTION_PASSWORD", ""))
+                    default="")
 parser.add_argument('--database', "-d", type=str, help='database', required=False,
-                    default=os.getenv("TEST_CONNECTION_DATABASE", "default"))
+                    default="default")
+parser.add_argument('--external-path', type=str, help='', required=False, default="")
+parser.add_argument('--metastore-uris', type=str, help='', required=False)
+parser.add_argument('--create-table-only', type=str, help='Will not running queries', required=False, default=False)
 
 if __name__ == "__main__":
     args = vars(parser.parse_args())
@@ -38,6 +40,10 @@ if __name__ == "__main__":
     config.CONNECTION_USER = args["user"]
     config.CONNECTION_PASSWORD = args["password"]
     config.CONNECTION_DATABASE = args["database"]
-    config.CLIENT = args["client"]
+    config.ENGINE = args["engine"]
     config.DIALECT = args["dialect"]
+    config.EXTERNAL_PATH = args["external_path"]
+    config.METASTORE_URIS = args["metastore_uris"]
+    config.ONLY_CREATE_TABLE = args["create_table_only"]
+
     locust_test.run()

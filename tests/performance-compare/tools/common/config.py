@@ -1,3 +1,11 @@
+import logging
+
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
+logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT)
+
+log = logging.getLogger()
+
 CONNECTION_HOST = ""
 CONNECTION_PORT = 80
 CONNECTION_USER = ""
@@ -11,4 +19,8 @@ DEFAULT_DIALECT = "ansi"
 ITERATIONS = 10
 OUTPUT_FILE = ""
 
-CLIENT = ""
+ENGINE = ""
+EXTERNAL_PATH = ""
+METASTORE_URIS = ""
+
+ONLY_CREATE_TABLE = False

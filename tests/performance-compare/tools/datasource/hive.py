@@ -3,11 +3,10 @@ from pyhive import hive
 from common import config
 from datasource import db_api_client
 
-client = "hive"
+ENGINE = "hive"
 
 
 class HiveDBApiClient(db_api_client.DBApiClient):
-
     def __init__(self, environment):
         super().__init__(environment)
 
@@ -21,3 +20,13 @@ class HiveDBApiClient(db_api_client.DBApiClient):
                                    password=config.CONNECTION_PASSWORD,
                                    host=config.CONNECTION_HOST,
                                    port=config.CONNECTION_PORT)
+
+    def location_sql(self, location_uri):
+        if location_uri == "":
+            return ""
+
+        return """
+          STORED AS PARQUET
+          LOCATION
+              '{}';
+          """.format(location_uri)

@@ -3,6 +3,8 @@ import sys
 import time
 from abc import abstractmethod, ABCMeta
 
+from datasource import sql
+
 from common import config
 
 
@@ -33,8 +35,11 @@ class DBApiClient(metaclass=ABCMeta):
         for k in other:
             if self.stmt[k]:
                 self.stmt[k] = other[k]
+
+        self.create_table_sql = sql.Tpch().create_table_sql(self)
         try:
             self.connection = self.create_connection()
+            self.create_table()
         except Exception as e:
             print(e)
             sys.exit(-1)
@@ -74,6 +79,42 @@ class DBApiClient(metaclass=ABCMeta):
         cursor.close()
         return "success"
 
+    def create_table(self):
+        self.execute(self.create_table_sql)
+
+    def trans_column_type(self, origin_type):
+        return origin_type.name
+
+    def trans_column_nullable(self, nullable):
+        if nullable:
+            return " NOT "
+        else:
+            return " NOT NULL "
+
+    def trans_column_default_value(self, default_value):
+        if default_value == "":
+            return ""
+        else:
+            return " default {} ".format(default_value)
+
+    def random_column(self):
+        return ""
+
+    def engine_sql(self):
+        return ""
+
     # @abstractmethod
-    # def get_dialect(self):
-    #     pass
+    def order_by_sql(self, order_by_column):
+        return ""
+
+    def shard_by_sql(self, shard_by_column):
+        return ""
+
+    def location_sql(self, location_uri):
+        return ""
+
+    def other_sql(self, table):
+        return ""
+
+    def pre_create_table(self):
+        return ""

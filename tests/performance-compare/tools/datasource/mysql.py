@@ -7,7 +7,7 @@ from datasource import db_api_client
 
 logger = logging.getLogger()
 
-client = "mysql"
+ENGINE = "mysql"
 
 
 class MysqlDBApiClient(db_api_client.DBApiClient):
