@@ -2,7 +2,7 @@ NAME_SPLIT_CHAR = "|"
 DATA_SPLIT_CHAR = ","
 
 
-def write_csv_result(file, stats_entries):
+def write_csv_detail_result(file, stats_entries):
     with open(file, "w") as file:
         for key in stats_entries:
             file.write(key[0] + NAME_SPLIT_CHAR + locust_group_to_times(stats_entries[key].response_times))

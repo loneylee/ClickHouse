@@ -8,8 +8,11 @@ from common import config
 
 def init_stmt(dialect):
     stmts = {}
-    root_path = os.path.join(config.DIALECT_ROOT_PATH, dialect)
 
+    if dialect == "":
+        return stmts
+
+    root_path = os.path.join(config.SQL_PATH, dialect)
     if not os.path.exists(root_path):
         return stmts
 
@@ -26,7 +29,7 @@ class DBApiClient(metaclass=ABCMeta):
     def __init__(self, environment):
         self.env = environment
         self.stmt = init_stmt(config.DEFAULT_DIALECT)
-        other = init_stmt(self.get_dialect())
+        other = init_stmt(config.DIALECT)
         for k in other:
             if self.stmt[k]:
                 self.stmt[k] = other[k]
@@ -71,6 +74,6 @@ class DBApiClient(metaclass=ABCMeta):
         cursor.close()
         return "success"
 
-    @abstractmethod
-    def get_dialect(self):
-        pass
+    # @abstractmethod
+    # def get_dialect(self):
+    #     pass

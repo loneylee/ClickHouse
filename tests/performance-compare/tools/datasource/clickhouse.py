@@ -1,5 +1,4 @@
 import logging
-import os
 
 from clickhouse_driver import dbapi
 
@@ -8,7 +7,7 @@ from datasource import db_api_client
 
 logger = logging.getLogger()
 
-SQL_DIALECT = "clickhouse"
+client = "clickhouse"
 
 
 class ClickhouseDBApiClient(db_api_client.DBApiClient):
@@ -21,6 +20,3 @@ class ClickhouseDBApiClient(db_api_client.DBApiClient):
         return dbapi.connect(database=config.CONNECTION_DATABASE, user=config.CONNECTION_USER,
                              password=config.CONNECTION_PASSWORD, host=config.CONNECTION_HOST,
                              port=config.CONNECTION_PORT)
-
-    def get_dialect(self):
-        return SQL_DIALECT

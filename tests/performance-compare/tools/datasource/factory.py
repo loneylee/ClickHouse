@@ -3,17 +3,18 @@ import sys
 
 from common import config
 from datasource import clickhouse
-from datasource import spark
-from datasource import starrocks
+from datasource import hive
+from datasource import mysql
 
 
 def get_client(environment):
-    if config.ENGINE == clickhouse.SQL_DIALECT:
+    client = str.lower(config.CLIENT)
+    if client == str.lower(clickhouse.client):
         return clickhouse.ClickhouseDBApiClient(environment)
-    elif config.ENGINE == spark.SQL_DIALECT:
-        return spark.SparkDBApiClient(environment)
-    elif config.ENGINE == starrocks.SQL_DIALECT:
-        return starrocks.StarrocksDBApiClient(environment)
+    elif client == str.lower(hive.client):
+        return hive.HiveDBApiClient(environment)
+    elif client == str.lower(mysql.client):
+        return mysql.MysqlDBApiClient(environment)
     else:
-        logging.getLogger("Engine").error("dialect {} not support", config.ENGINE)
+        logging.getLogger("Engine").error("Engine {} not support", client)
         sys.exit(10)

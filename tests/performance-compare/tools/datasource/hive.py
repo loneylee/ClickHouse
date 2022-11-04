@@ -3,10 +3,10 @@ from pyhive import hive
 from common import config
 from datasource import db_api_client
 
-SQL_DIALECT = "spark"
+client = "hive"
 
 
-class SparkDBApiClient(db_api_client.DBApiClient):
+class HiveDBApiClient(db_api_client.DBApiClient):
 
     def __init__(self, environment):
         super().__init__(environment)
@@ -21,6 +21,3 @@ class SparkDBApiClient(db_api_client.DBApiClient):
                                    password=config.CONNECTION_PASSWORD,
                                    host=config.CONNECTION_HOST,
                                    port=config.CONNECTION_PORT)
-
-    def get_dialect(self):
-        return SQL_DIALECT
