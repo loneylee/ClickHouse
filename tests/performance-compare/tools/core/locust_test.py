@@ -1,4 +1,6 @@
 # from locust import HttpUser, task, run_single_user
+import os
+
 import gevent
 import locust_plugins
 from configargparse import Namespace
@@ -57,7 +59,7 @@ def run():
     # wait for the greenlets
     env.runner.greenlet.join()
 
-    csv.write_csv_result(config.OUTPUT_FILE, env.stats.entries)
+    csv.write_csv_detail_result(config.OUTPUT_FILE + os.sep + "detail_result.csv", env.stats.entries)
 
     # stop the web server for good measures
     env.web_ui.stop()
