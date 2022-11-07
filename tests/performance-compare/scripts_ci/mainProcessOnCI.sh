@@ -164,6 +164,9 @@ do
 	source var${sv}.conf
 	#check if need to setup spark and start service
 	bash ./setup${sv}.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
+
+	sleep 10000
+
 	if [ \$? -ne 0 ];then
 		echo setup wrong
 		cd ${script_home}
@@ -174,8 +177,8 @@ do
 	#call locust script,tbd
 	echo "$(date '+%F %T'): call call locust script"
 	cd ${locust_home}
-	mkdir -p result
-	python3 ./test.py --iterations 10 --dialect-path ${sqls_home} --output-file ${result_home}/${sv}_$(date '+%Y-%m-%d-%H-%M-%S').csv -p 10000 --engine hive --host ${private_driver_host} --user root --password root
+	mkdir -p result/${sv}
+  bash ./${sv}.sh ${key_file}
 	if [ \$? -ne 0 ];then
 		cd ${script_home}
 		bash ./clean${sv}.sh ${key_file}
@@ -200,8 +203,6 @@ EOF
 	echo ""
 
 done #service test loop done
-
-sleep 10000
 
 #upload all results to conbench,tbd
 echo "$(date '+%F %T'): upload result to conbench"
