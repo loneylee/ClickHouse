@@ -26,7 +26,7 @@ if [ $? -ne 0 ];then
 fi
 
 
-ansible-playbook be-playbook.yml --skip-tags clean --extra-vars "install_dir=${STARROCKS_INSTALL_HOME} starrock_version=${STARROCKS_VERSION}"
+ansible-playbook be-playbook.yml --skip-tags clean --extra-vars "install_dir=${STARROCKS_INSTALL_HOME} starrock_version=${STARROCKS_VERSION} JAVA_HOME=${JAVA_HOME}"
 
 if [ $? -ne 0 ];then
         echo "$(date '+%F %T'): Starrocks be install failed! Have a check!"

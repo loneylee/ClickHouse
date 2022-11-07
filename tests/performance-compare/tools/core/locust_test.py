@@ -69,7 +69,8 @@ def run():
     # wait for the greenlets
     env.runner.greenlet.join()
 
-    csv.write_csv_detail_result(config.OUTPUT_FILE + os.sep + "detail_result.csv", env.stats.entries)
+    if config.OUTPUT_FILE != "":
+        csv.write_csv_detail_result(config.OUTPUT_FILE + os.sep + "detail_result.csv", env.stats.entries)
 
     # stop the web server for good measures
     env.web_ui.stop()

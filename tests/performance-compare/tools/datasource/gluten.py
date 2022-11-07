@@ -1,3 +1,4 @@
+from common import config
 from datasource import hive
 
 ENGINE = "gluten"
@@ -5,10 +6,12 @@ ENGINE = "gluten"
 
 class GlutenDBApiClient(hive.HiveDBApiClient):
     def engine_sql(self):
-        return """
-            USING clickhouse
-            TBLPROPERTIES (engine='MergeTree')
-        """
+        if config.DATA_FORMAT == "parquet":
+            return """USING PARQUET
+            TBLPROPERTIES (engine='Parquet')"""
+
+        return """USING clickhouse
+            TBLPROPERTIES (engine='MergeTree')"""
 
     def location_sql(self, location_uri):
         return " LOCATION '{}'".format(location_uri)

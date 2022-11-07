@@ -3,9 +3,10 @@ import sys
 import time
 from abc import abstractmethod, ABCMeta
 
-from datasource import sql
-
 from common import config
+from datasource import statement
+
+log = config.log
 
 
 def init_stmt(dialect):
@@ -30,19 +31,20 @@ def init_stmt(dialect):
 class DBApiClient(metaclass=ABCMeta):
     def __init__(self, environment):
         self.env = environment
-        self.stmt = init_stmt(config.DEFAULT_DIALECT)
-        other = init_stmt(config.DIALECT)
-        for k in other:
-            if self.stmt[k]:
-                self.stmt[k] = other[k]
-
-        self.create_table_sql = sql.Tpch().create_table_sql(self)
+        self.create_table_sql = statement.Tpch().create_table_sql(self)
         try:
             self.connection = self.create_connection()
             self.create_table()
         except Exception as e:
-            print(e)
+            log.error(e)
             sys.exit(-1)
+
+        if not config.ONLY_CREATE_TABLE:
+            self.stmt = init_stmt(config.DEFAULT_DIALECT)
+            other = init_stmt(config.DIALECT)
+            for k in other:
+                if self.stmt[k]:
+                    self.stmt[k] = other[k]
 
     @abstractmethod
     def create_connection(self):
@@ -80,7 +82,11 @@ class DBApiClient(metaclass=ABCMeta):
         return "success"
 
     def create_table(self):
-        self.execute(self.create_table_sql)
+        for create_sql in self.create_table_sql:
+            try:
+                self.execute(create_sql)
+            except Exception as e:
+                log.error(e)
 
     def trans_column_type(self, origin_type):
         return origin_type.name
@@ -117,4 +123,4 @@ class DBApiClient(metaclass=ABCMeta):
         return ""
 
     def pre_create_table(self):
-        return ""
+        return []

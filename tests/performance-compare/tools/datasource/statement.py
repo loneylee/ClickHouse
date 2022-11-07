@@ -43,28 +43,28 @@ class Table(object):
             self.extrnal_path = config.EXTERNAL_PATH + os.sep + self.name
 
     def to_sql(self, engine):
-        sql = ""
+        sql = []
 
         extrnal_keyword = "EXTERNAL"
         if self.extrnal_path == "":
-            sql += "drop table if exists {};".format(self.name)
             extrnal_keyword = ""
+        else:
+            sql.append("drop table if exists {}".format(self.name))
 
-        sql += """
-            CREATE {extrnal} TABLE IF NOT EXISTS {table_name}
-            (
-            {columns}
-            )
-            {engine}
-            {order_by}
-            {shard_by}
-            {location}
-            {other}
-        """.format(extrnal=extrnal_keyword, table_name=self.name, columns=self._column_to_sql(engine),
-                   engine=engine.engine_sql(), order_by=engine.order_by_sql(self.order_cols),
-                   shard_by=engine.shard_by_sql(self.shard_cols),
-                   location=engine.location_sql(self.extrnal_path),
-                   other=engine.other_sql(self))
+        sql.append("""CREATE {extrnal} TABLE IF NOT EXISTS {table_name}
+                    (
+                    {columns}
+                    )
+                    {engine}
+                    {order_by}
+                    {shard_by}
+                    {location}
+                    {other}""".format(extrnal=extrnal_keyword, table_name=self.name,
+                                      columns=self._column_to_sql(engine),
+                                      engine=engine.engine_sql(), order_by=engine.order_by_sql(self.order_cols),
+                                      shard_by=engine.shard_by_sql(self.shard_cols),
+                                      location=engine.location_sql(self.extrnal_path),
+                                      other=engine.other_sql(self)))
 
         log.info("================================================================")
         log.info(sql)
@@ -89,10 +89,11 @@ class Tpch(object):
     def create_table_sql(self, engine):
         sql = engine.pre_create_table()
         log.info("================================================================")
+        log.info("prepare SQL:")
         log.info(sql)
 
         for table_name in self.tables:
-            sql += self.tables[table_name].to_sql(engine) + ";"
+            sql += self.tables[table_name].to_sql(engine)
         return sql
 
     def customer(self):

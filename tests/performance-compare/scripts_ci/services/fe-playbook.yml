@@ -46,10 +46,10 @@
     - name: print JAVA_HOME
       debug:
         msg: "{{ JAVA_HOME }}"
-    - name: config fe metadata path
-      shell: "echo 'meta_dir={{ meta_home }}' | tee -a {{ fe_home }}/conf/fe.conf"
+#    - name: config fe metadata path
+#      shell: "echo 'meta_dir={{ meta_home }}' | tee -a {{ fe_home }}/conf/fe.conf"
     - name: config fe java home
-      shell: "echo JAVA_HOME={{ JAVA_HOME }} | tee -a {{ fe_home }}/conf/fe.conf"
+      shell: "sed '/JAVA_HOME/d' {{ fe_home }}/conf/fe.conf | echo JAVA_HOME={{ JAVA_HOME }} | tee -a {{ fe_home }}/conf/fe.conf"
     - name: start fe
       shell: "{{ fe_home }}/bin/start_fe.sh --daemon"
     - name: check fe health

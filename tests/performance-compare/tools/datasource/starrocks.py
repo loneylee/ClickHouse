@@ -28,13 +28,22 @@ class StarrocksDBApiClient(mysql.MysqlDBApiClient):
             return "ENGINE=hive"
         return " ENGINE=OLAP "
 
+    def trans_column_nullable(self, nullable):
+        if nullable or config.EXTERNAL_PATH != "":
+            return " NULL "
+        else:
+            return " NOT NULL "
+
     def pre_create_table(self):
+        pre_sql = []
         if config.EXTERNAL_PATH == "":
-            return ""
-        return """
-            DROP RESOURCE {resource_name};
+            return pre_sql
+
+        pre_sql.append("DROP RESOURCE {resource_name};".format(resource_name=self.resource_name))
+        pre_sql.append("""
             CREATE EXTERNAL RESOURCE "{resource_name}" PROPERTIES (
               "type" = "hive",
               "hive.metastore.uris" = "{metastore_uris}"
             );
-        """.format(resource_name=self.resource_name, metastore_uris=config.METASTORE_URIS)
+        """.format(resource_name=self.resource_name, metastore_uris=config.METASTORE_URIS))
+        return pre_sql
