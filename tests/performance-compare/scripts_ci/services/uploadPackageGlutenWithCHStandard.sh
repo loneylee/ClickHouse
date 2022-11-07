@@ -24,5 +24,12 @@ if [ $? -ne 0 ];then
 fi
 
 #copy hive-site.xml and hive jars from emr hive home
+#namenode_ip=$(cat /tmp/namenode_ip)
+#scp -i ${local_key_file} ${local_key_file} ${emr_namenode_user}@${namenode_ip}:${namenode_key_file}
+#ssh -i ${local_key_file} ${local_key_file} ${emr_namenode_user}@${namenode_ip} <<  EOF
+#scp -i ~/
+#EOF
+
+
 
 
