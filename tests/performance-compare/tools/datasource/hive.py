@@ -28,5 +28,8 @@ class HiveDBApiClient(db_api_client.DBApiClient):
         return """
           STORED AS PARQUET
           LOCATION
-              '{}';
+              '{}'
           """.format(location_uri)
+
+    def trans_column_nullable(self, nullable):
+        return ""

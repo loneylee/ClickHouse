@@ -24,3 +24,5 @@ EXTERNAL_PATH = ""
 METASTORE_URIS = ""
 
 ONLY_CREATE_TABLE = False
+
+DATA_FORMAT = "parquet"

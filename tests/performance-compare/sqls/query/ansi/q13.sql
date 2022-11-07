@@ -4,7 +4,7 @@ SELECT
 FROM (
     SELECT
         c_custkey,
-        count(o_orderkey)
+        count(o_orderkey) as c_count
     FROM
         customer
     LEFT OUTER JOIN orders ON c_custkey = o_custkey

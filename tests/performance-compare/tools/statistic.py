@@ -7,7 +7,7 @@ from core import locust_test
 parser = argparse.ArgumentParser(description='command line arguments')
 parser.add_argument('--iterations', '-i', type=int,
                     help='Iteration limit , stops Locust after a certain number of task iterations', required=False,
-                    default=7)
+                    default=1)
 parser.add_argument('--output-dir', '-o', type=str, help='', required=True)
 parser.add_argument('--engine', "-e", type=str, help='used connection engine, eg. mysql, clickhouse, hive, starrocks',
                     required=True)
@@ -25,9 +25,13 @@ parser.add_argument('--password', type=str, help='password', required=False,
                     default="")
 parser.add_argument('--database', "-d", type=str, help='database', required=False,
                     default="default")
-parser.add_argument('--external-path', type=str, help='', required=False, default="")
+parser.add_argument('--external-path', type=str, help='If not empty, it will query with external tables.',
+                    required=False, default="")
 parser.add_argument('--metastore-uris', type=str, help='', required=False)
-parser.add_argument('--create-table-only', type=str, help='Will not running queries', required=False, default=False)
+parser.add_argument('--create-table-only', type=str, help='Will not running queries', required=False, default="false")
+parser.add_argument('--data-format', type=str, help='mergetree or parquet', required=False, default="parquet")
+
+
 
 if __name__ == "__main__":
     args = vars(parser.parse_args())
@@ -44,6 +48,11 @@ if __name__ == "__main__":
     config.DIALECT = args["dialect"]
     config.EXTERNAL_PATH = args["external_path"]
     config.METASTORE_URIS = args["metastore_uris"]
-    config.ONLY_CREATE_TABLE = args["create_table_only"]
+    config.DATA_FORMAT = args["data_format"]
+
+    if args["create_table_only"].lower() == "true":
+        config.ONLY_CREATE_TABLE = True
+    else:
+        config.ONLY_CREATE_TABLE = False
 
     locust_test.run()

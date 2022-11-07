@@ -47,6 +47,11 @@
       file:
         path: "{{ storage_home }}"
         state: directory
+    - name: print JAVA_HOME
+      debug:
+        msg: "{{ JAVA_HOME }}"
+    - name: config fe java home
+      shell: "sed '/JAVA_HOME/d' {{ be_home }}/conf/be.conf | echo JAVA_HOME={{ JAVA_HOME }} | tee -a {{ be_home }}/conf/be.conf"
     - name: start be
       shell: "{{ be_home }}/bin/start_be.sh --daemon"
     - name: check be health

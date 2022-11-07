@@ -15,7 +15,7 @@ FROM
         WHERE
             l_shipdate >= date'1996-01-01' AND l_shipdate < date'1996-01-01' + interval 3 month
         GROUP BY
-            supplier_no) revenue0
+            l_suppkey) revenue0
 WHERE
     s_suppkey = supplier_no
     AND total_revenue = (
@@ -30,6 +30,6 @@ WHERE
             WHERE
                 l_shipdate >= date'1996-01-01' AND l_shipdate < date'1996-01-01' + interval 3 month
             GROUP BY
-                supplier_no) revenue1)
+                l_suppkey) revenue1)
 ORDER BY
     s_suppkey;
