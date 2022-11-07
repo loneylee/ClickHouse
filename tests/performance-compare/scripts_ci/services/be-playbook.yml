@@ -25,6 +25,7 @@
     - name: stop old starrocks be if starrocks home exist
       shell: "{{ be_home }}/bin/stop_be.sh --daemon"
       when: dir_is_exist.stat.exists == True
+      ignore_errors: yes
     - name: remove old starrocks cluster id
       file:
         path: "{{ storage_home }}/cluster_id"

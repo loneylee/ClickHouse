@@ -28,6 +28,7 @@
     - name: stop old starrocks if starrocks home exist
       shell: "{{ fe_home }}/bin/stop_fe.sh --daemon"
       when: dir_is_exist.stat.exists == True
+      ignore_errors: yes
     - name: remove old starrocks metadata
       file:
         path: "{{ meta_home }}"
