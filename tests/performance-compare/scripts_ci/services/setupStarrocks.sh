@@ -2,14 +2,18 @@
 
 
 ROOT_PATH=$(cd `dirname -- $0` && pwd -P)
-
+echo workers:$3
 
 #STARROCKS_INSTALL_HOME=/home/admin123/lishuai/starrocks
-
-DRIVER_HOST=$1
-WORKER_HOSTS=$2
+key_file=$1
+DRIVER_HOST=$2
+WORKER_HOSTS=$3
 echo $WORKER_HOSTS
-WORKER_HOSTS_ARR=(${WORKER_HOSTS//,/})
+OLD_IFS="$IFS"
+IFS=","
+WORKER_HOSTS_ARR=(${WORKER_HOSTS})
+IFS="${OLD_IFS}"
+
 
 STARROCKS_VERSION=2.3.3
 

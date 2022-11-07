@@ -23,3 +23,6 @@ if [ $? -ne 0 ];then
 	scp -i ${local_key_file} ${local_libch_standard_so} ${cloud_vm_user}@${driver_host}:${libch_standard_so}
 fi
 
+#copy hive-site.xml and hive jars from emr hive home
+
+
