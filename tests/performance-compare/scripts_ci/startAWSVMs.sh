@@ -36,4 +36,4 @@ done
 IFS="${OLD_IFS}"
 
 
-sleep 15
+sleep ${vm_start_waiting_time_s}

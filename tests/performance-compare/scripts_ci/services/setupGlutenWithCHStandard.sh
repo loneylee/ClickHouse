@@ -1,8 +1,8 @@
 #!/bin/bash
 
 
-if [ $# -ne 2 ];then
-        echo "Usage: ./setupGlutenWithCHStandard.sh key_file spark_master_ip"
+if [ $# -ne 3 ];then
+        echo "Usage: ./setupGlutenWithCHStandard.sh key_file spark_master_ip worker_ips"
         exit 1
 fi
 #./setupGlutenWithCHStandard.sh /home/ubuntu/ckops-awscn.pem localhost
@@ -107,10 +107,10 @@ echo "$(date '+%F %T'): start history server"
 #use beeline do a connection test
 echo "$(date '+%F %T'): do a connect test"
 sleep 5
-./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "select 1;"
+./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100;create database if not exists tpch1000;"
 if [ $? -ne 0 ];then
 	sleep 5
-	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "select 1;"
+	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100;create database if not exists tpch1000;"
 	if [ $? -ne 0 ];then
 		echo "$(date '+%F %T'): Spark not launched!Have a check!"
 		exit 102

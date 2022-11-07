@@ -22,7 +22,7 @@ if [ ${run_mode} = "local" ];then
 	echo "$(date '+%F %T'): test run on local"
 elif [ ${run_mode} = "aws" ];then
 	echo "$(date '+%F %T'): test run on aws"
-	<< comment
+<< EOF
 	bash ${main_script_dir}/startAWSEMR.sh ${local_key_file} ${emr_namenode_user} ${emr_start_waiting_time_s}
 	if [ $? -ne 0 ];then
         	echo "$(date '+%F %T'): start cloud hdfs failed!"
@@ -40,8 +40,7 @@ elif [ ${run_mode} = "aws" ];then
 	bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}
 	echo "$(date '+%F %T'): prepare data ready"	
 #	sleep 10000
-
-comment
+EOF
 
 	bash ${main_script_dir}/startAWSVMs.sh
 	#check status,to be done
@@ -129,7 +128,7 @@ do
 	#check if need to setup locust env
 	sudo apt-get install -y python3-pip
 	sudo apt-get install -y libsasl2-dev
-	pip install -r ${locust_home}/requirements.txt
+	pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r ${locust_home}/requirements.txt
 
 	#pull up conbench service 
 EOF
@@ -154,19 +153,22 @@ do
 	source ${main_script_dir}/services/var${sv}.conf
 
 	#copy gluten jar and libch.so to driver
-	bash ${main_script_dir}/services/uploadPackageFromCI${sv}.sh ${local_key_file} ${cloud_vm_user} ${driver_host}
+	ls -hl ${main_script_dir}/services/uploadPackage${sv}.sh
+	if [ $? -eq 0 ];then
+	  bash ${main_script_dir}/services/uploadPackage${sv}.sh ${local_key_file} ${cloud_vm_user} ${driver_host}
+	fi
 
 
 	ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host}  << EOF
 	cd ${script_home}
 	source var${sv}.conf
 	#check if need to setup spark and start service
-	bash ./setup${sv}.sh ${key_file} ${private_driver_host}
+	bash ./setup${sv}.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
 	if [ \$? -ne 0 ];then
 		echo setup wrong
 		cd ${script_home}
 		bash ./clean${sv}.sh ${key_file}
-        	exit 1
+    exit 1
 	fi       
 
 	#call locust script,tbd
@@ -177,7 +179,7 @@ do
 	if [ \$? -ne 0 ];then
 		cd ${script_home}
 		bash ./clean${sv}.sh ${key_file}
-        	exit 1
+    exit 1
 	fi
 
 
@@ -198,6 +200,8 @@ EOF
 	echo ""
 
 done #service test loop done
+
+sleep 10000
 
 #upload all results to conbench,tbd
 echo "$(date '+%F %T'): upload result to conbench"

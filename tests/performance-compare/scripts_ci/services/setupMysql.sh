@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "$(date '+%F %T'): mysql setup begin"
-sudo apt-get install -y mysql-server
+#sudo apt-get install -y mysql-server
 sudo apt install -y mysql-client
 sudo apt install libmysqlclient-dev
 
