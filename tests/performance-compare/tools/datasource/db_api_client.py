@@ -23,13 +23,14 @@ def init_stmt(dialect):
         full_path = os.path.join(root_path, file_name)
         if os.path.isfile(full_path) and file_name.endswith(".sql"):
             with open(full_path, "r") as file:
-                stmts[file_name] = file.read()
+                stmts[file_name[:-len(".sql")]] = file.read()
 
     return stmts
 
 
 class DBApiClient(metaclass=ABCMeta):
     def __init__(self, environment):
+        self.stmt = None
         self.env = environment
         self.create_table_sql = statement.Tpch().create_table_sql(self)
         try:
@@ -38,13 +39,19 @@ class DBApiClient(metaclass=ABCMeta):
         except Exception as e:
             log.error(e)
             sys.exit(-1)
+        self.setup_statement()
 
+    def setup_statement(self):
         if not config.ONLY_CREATE_TABLE:
             self.stmt = init_stmt(config.DEFAULT_DIALECT)
-            other = init_stmt(config.DIALECT)
-            for k in other:
-                if self.stmt[k]:
-                    self.stmt[k] = other[k]
+            if config.DEFAULT_DIALECT != config.DIALECT:
+                other = init_stmt(config.DIALECT)
+                for k in other:
+                    if self.stmt[k]:
+                        if other[k].startswith("skip"):
+                            self.stmt.pop(k, "")
+                        else:
+                            self.stmt[k] = other[k]
 
     @abstractmethod
     def create_connection(self):
@@ -64,12 +71,13 @@ class DBApiClient(metaclass=ABCMeta):
             "context": None,
             "response": None,
         }
+        log.info("Running statement {}", name)
         start_perf_counter = time.perf_counter()
         try:
             request_meta["response"] = self.execute(stmt)
             request_meta["response_length"] = len(request_meta["response"])
         except Exception as e:
-            print(e)
+            log.error(e)
             request_meta["exception"] = e
         request_meta["response_time"] = int((time.perf_counter() - start_perf_counter) * 1000)
         self.env.events.request.fire(**request_meta)
