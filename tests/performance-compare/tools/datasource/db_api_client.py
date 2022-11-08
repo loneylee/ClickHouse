@@ -71,7 +71,7 @@ class DBApiClient(metaclass=ABCMeta):
             "context": None,
             "response": None,
         }
-        log.info("Running statement {}", name)
+        log.info("Running statement {}".format(name))
         start_perf_counter = time.perf_counter()
         try:
             request_meta["response"] = self.execute(stmt)
