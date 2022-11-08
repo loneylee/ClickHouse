@@ -53,6 +53,9 @@ if [ ${#WORKER_HOSTS_ARR[*]} -ne $alive_cnt ];then
 	exit 123
 fi
 
+echo "$(date '+%F %T'): Starrocks create databases"
+mysql -h ${DRIVER_HOST} -P9030 -uroot -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
+
 echo "$(date '+%F %T'): Starrocks is installed."
 
 # todo: add create table and load data

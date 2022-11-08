@@ -54,15 +54,14 @@ echo "$(date '+%F %T'): start thrift server"
 ./sbin/start-thriftserver.sh \
   --master spark://${spark_master_ip}:7077 --deploy-mode client \
   --driver-memory 8g --driver-cores 3 \
-  --total-executor-cores 30 --executor-memory 30g --executor-cores 15 \
+  --total-executor-cores 45 --executor-memory 30g --executor-cores 15 \
   --conf spark.driver.memoryOverhead=4G \
   --conf spark.serializer=org.apache.spark.serializer.JavaSerializer \
   --conf spark.default.parallelism=120 \
-  --conf spark.sql.shuffle.partitions=120 \
+  --conf spark.sql.shuffle.partitions=90 \
   --conf spark.sql.files.minPartitionNum=1 \
   --conf spark.sql.files.maxPartitionBytes=671088640 \
   --conf spark.sql.files.openCostInBytes=671088640 \
-  --conf spark.sql.adaptive.enabled=false \
   --conf spark.sql.parquet.filterPushdown=true \
   --conf spark.sql.parquet.enableVectorizedReader=true \
   --conf spark.locality.wait=0 \
@@ -70,7 +69,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.locality.wait.process=0 \
   --conf spark.sql.columnVector.offheap.enabled=true \
   --conf spark.memory.offHeap.enabled=true \
-  --conf spark.memory.offHeap.size=21474836480 \
+  --conf spark.memory.offHeap.size=30g \
   --conf spark.plugins=io.glutenproject.GlutenPlugin \
   --conf spark.gluten.sql.columnar.columnartorow=true \
   --conf spark.gluten.sql.columnar.loadnative=true \
@@ -95,7 +94,10 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.eventLog.enabled=true \
   --conf spark.eventLog.dir=file://${spark_event_logs} \
   --conf spark.eventLog.compress=true \
-  --conf spark.eventLog.compression.codec=snappy
+  --conf spark.eventLog.compression.codec=snappy \
+  --conf spark.memory.fraction=0.6 \
+  --conf spark.memory.storageFraction=0.3 \
+  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.hdfs.libhdfs3_conf=/home/ubuntu/glutenTest/spark/spark-3.2.2-bin-hadoop2.7/conf/hdfs-site.xml
 #  --files ${spark_home}/conf/log4j_thrift.properties
 
 
@@ -106,11 +108,11 @@ echo "$(date '+%F %T'): start history server"
 
 #use beeline do a connection test
 echo "$(date '+%F %T'): do a connect test"
-sleep 5
-./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100;create database if not exists tpch1000;"
+sleep 10
+./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
 if [ $? -ne 0 ];then
-	sleep 5
-	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100;create database if not exists tpch1000;"
+	sleep 15
+	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
 	if [ $? -ne 0 ];then
 		echo "$(date '+%F %T'): Spark not launched!Have a check!"
 		exit 102

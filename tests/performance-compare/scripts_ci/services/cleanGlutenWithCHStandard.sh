@@ -18,7 +18,7 @@ ansible --key-file ${key_file} tcluster -m shell -a "ps -ef|grep test.py|grep -v
 locust_exists=$?
 
 if [ ${sevice_exists} -ne 0 ] && [ ${locust_exists} -ne 0 ];then
-	echo "$(date '+%F %T'): GlutenWithCHStandar clean work done!"
+	echo "$(date '+%F %T'): GlutenWithCHStandard clean work done!"
 	exit 0
 else
 	echo "$(date '+%F %T'): GlutenWithCHStandard clean work not done!"
