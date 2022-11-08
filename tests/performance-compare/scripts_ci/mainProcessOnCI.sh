@@ -38,8 +38,7 @@ elif [ ${run_mode} = "aws" ];then
 	echo "$(date '+%F %T'): download data from s3 on namenode and upload to hdfs"
 	echo "bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}"
 	bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}
-	echo "$(date '+%F %T'): prepare data ready"	
-#	sleep 10000
+	echo "$(date '+%F %T'): prepare data ready"
 EOF
 
 	bash ${main_script_dir}/startAWSVMs.sh
@@ -147,6 +146,13 @@ done
 
 #service test loop start
 echo "$(date '+%F %T'): service test loop start"
+export private_namenode_ip=$(cat /tmp/private_namenode_ip)
+
+export  emr_cluster_id="j-37OHJEAGF5PMZ"
+export  private_namenode_ip="172.31.22.244"
+export  namenode_ip="52.82.26.170"
+
+
 for sv in ${service[@]}
 do
 	echo "$(date '+%F %T'): service to test is ${sv}"
@@ -159,13 +165,15 @@ do
 	fi
 
 
+
+  now_time=$(date "+%Y_%m_%d_%H_%M_%S")
 	ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host}  << EOF
 	cd ${script_home}
 	source var${sv}.conf
 	#check if need to setup spark and start service
 	bash ./setup${sv}.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
 
-	sleep 10000
+	#sleep 10000
 
 	if [ \$? -ne 0 ];then
 		echo setup wrong
@@ -175,10 +183,10 @@ do
 	fi       
 
 	#call locust script,tbd
-	echo "$(date '+%F %T'): call call locust script"
-	cd ${locust_home}
-	mkdir -p result/${sv}
-  bash ./${sv}.sh ${key_file}
+	echo "$(date '+%F %T'): call locust script"
+	cd ${script_home}
+	mkdir -p ${result_home}/${sv}_${now_time}
+  bash ./runLocust${sv}.sh ${sqls_home} ${private_namenode_ip} ${iteration} ${result_home}/${sv}_${now_time} ${private_driver_host} ${locust_home} ${spark_home}
 	if [ \$? -ne 0 ];then
 		cd ${script_home}
 		bash ./clean${sv}.sh ${key_file}
@@ -188,7 +196,7 @@ do
 
 	#clean work
 	cd ${script_home}
-	bash ./clean${sv}.sh ${key_file} 
+	bash ./clean${sv}.sh ${key_file}
 	if [ \$? -ne 0 ];then
         	exit 1
 	fi
@@ -203,7 +211,7 @@ EOF
 	echo ""
 
 done #service test loop done
-
+#sleep 10000
 #upload all results to conbench,tbd
 echo "$(date '+%F %T'): upload result to conbench"
 
@@ -212,7 +220,7 @@ echo "$(date '+%F %T'): shutdown cloud vms and hdfs cluster!"
 if [ ${run_mode} = "aws" ];then
 	emr_cluster_id=$(cat /tmp/emr_cluster_id)
 	bash ${main_script_dir}/stopAWSVMs.sh
-	bash ${main_script_dir}/stopAWSEMR.sh ${emr_cluster_id}
+	#bash ${main_script_dir}/stopAWSEMR.sh ${emr_cluster_id}
 elif [ ${run_mode} = "gcp" ];then
 	echo "$(date '+%F %T'): stop vms on gcp to be done"
 else
