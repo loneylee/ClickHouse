@@ -47,7 +47,7 @@ class DBApiClient(metaclass=ABCMeta):
             if config.DEFAULT_DIALECT != config.DIALECT:
                 other = init_stmt(config.DIALECT)
                 for k in other:
-                    if self.stmt[k]:
+                    if k in self.stmt:
                         if other[k].startswith("skip"):
                             self.stmt.pop(k, "")
                         else:
