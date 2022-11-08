@@ -1,5 +1,4 @@
 # from locust import HttpUser, task, run_single_user
-import os
 
 import gevent
 import locust_plugins
@@ -70,7 +69,7 @@ def run():
     env.runner.greenlet.join()
 
     if config.OUTPUT_FILE != "":
-        csv.write_csv_detail_result(config.OUTPUT_FILE + os.sep + "detail_result.csv", env.stats.entries)
+        csv.write_result(config.OUTPUT_FILE, env.stats.entries)
 
     # stop the web server for good measures
     env.web_ui.stop()

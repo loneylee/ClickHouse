@@ -1,12 +1,24 @@
-NAME_SPLIT_CHAR = "|"
+import os
+
 DATA_SPLIT_CHAR = ","
 
 
-def write_csv_detail_result(file, stats_entries):
-    with open(file, "w") as file:
-        for key in stats_entries:
-            file.write(key[0] + NAME_SPLIT_CHAR + locust_group_to_times(stats_entries[key].response_times))
-            file.write("\n")
+def write_result(dirs, stats_entries):
+    with open(dirs + os.sep + "detail.csv", "w") as detail:
+        with open(dirs + os.sep + "aggregated.csv", "w") as aggregated:
+            aggregated.write("name" + DATA_SPLIT_CHAR + "avg_response_time" + DATA_SPLIT_CHAR +
+                             "median_response_time" + DATA_SPLIT_CHAR + "min_response_time" + DATA_SPLIT_CHAR +
+                             "max_response_time")
+            aggregated.write("\n")
+            for key in stats_entries:
+                entry = stats_entries[key]
+                detail.write(key[0] + DATA_SPLIT_CHAR + locust_group_to_times(entry.response_times))
+                detail.write("\n")
+                aggregated.write(key[
+                                     0] + DATA_SPLIT_CHAR + str(entry.avg_response_time) + DATA_SPLIT_CHAR + str(
+                    entry.median_response_time) + DATA_SPLIT_CHAR + str(entry.min_response_time) + DATA_SPLIT_CHAR +
+                                 str(entry.max_response_time))
+                aggregated.write("\n")
 
 
 def locust_group_to_times(dicts):
@@ -37,7 +49,7 @@ def read_csv_result(file):
 
     for line in lines:
         if line != "":
-            data = line.split(NAME_SPLIT_CHAR)
+            data = line.split(DATA_SPLIT_CHAR)
             dicts[data[0]] = [int(x) for x in data[1].split(DATA_SPLIT_CHAR)]
 
     return dicts
