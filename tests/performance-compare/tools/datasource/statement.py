@@ -107,7 +107,9 @@ class Tpch(object):
         t_customer.columns.append(Column("c_mktsegment", ColumnType.STRING))
         t_customer.columns.append(Column("c_comment", ColumnType.STRING))
         # t.engine = "MergeTree"
+        #t_customer.order_by
         return t_customer
+
 
     def lineitem(self):
         t_lineitem = Table("lineitem")
