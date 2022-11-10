@@ -37,6 +37,12 @@ ansible --key-file ${key_file} tcluster -m shell -a "rm -f ${spark_home}/jars/gl
 ansible --key-file ${key_file} tcluster -m copy -a "src=${gluten_standard_jar} dest=${spark_home}/jars/"
 ansible --key-file ${key_file} workers  -m copy -a "src=${libch_standard_so} dest=${libch_standard_so}"
 
+echo "$(date '+%F %T'): config spark-env.sh"
+cd ${spark_home}/conf
+echo '#!/usr/bin/env bash' > spark-env.sh
+echo "export SPARK_WORKER_CORES=15" >> spark-env.sh
+echo "export SPARK_WORKER_MEMORY=60g" >> spark-env.sh
+ansible --key-file ${key_file} workers  -m copy -a "src=spark-env.sh dest=${spark_home}/conf/"
 
 #start master
 echo "$(date '+%F %T'): start master"

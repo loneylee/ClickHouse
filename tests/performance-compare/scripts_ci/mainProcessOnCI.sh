@@ -22,24 +22,29 @@ if [ ${run_mode} = "local" ];then
 	echo "$(date '+%F %T'): test run on local"
 elif [ ${run_mode} = "aws" ];then
 	echo "$(date '+%F %T'): test run on aws"
-<< EOF
-	bash ${main_script_dir}/startAWSEMR.sh ${local_key_file} ${emr_namenode_user} ${emr_start_waiting_time_s}
-	if [ $? -ne 0 ];then
-        	echo "$(date '+%F %T'): start cloud hdfs failed!"
-        	exit 1
-	fi
-	#export emr_cluster_id
-	#export private_namenode_ip
-	#export namenode_ip
-	namenode_ip=$(cat /tmp/namenode_ip)
+
+  if [ ${need_prepare_emr} -eq 1 ];then
+	  bash ${main_script_dir}/startAWSEMR.sh ${local_key_file} ${emr_namenode_user} ${emr_start_waiting_time_s}
+	  if [ $? -ne 0 ];then
+          	echo "$(date '+%F %T'): start cloud hdfs failed!"
+          	exit 1
+	  fi
+	  #export emr_cluster_id
+	  #export private_namenode_ip
+	  #export namenode_ip
+	  namenode_ip=$(cat /tmp/namenode_ip)
 
 
-	#get data from s3 and load to hdfs
-	echo "$(date '+%F %T'): download data from s3 on namenode and upload to hdfs"
-	echo "bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}"
-	bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}
-	echo "$(date '+%F %T'): prepare data ready"
-EOF
+	  #get data from s3 and load to hdfs
+	  echo "$(date '+%F %T'): download data from s3 on namenode and upload to hdfs"
+	  echo "bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}"
+	  bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}
+	  echo "$(date '+%F %T'): prepare data ready"
+  fi
+  export namenode_ip=$(cat /tmp/namenode_ip)
+  export private_namenode_ip=$(cat /tmp/private_namenode_ip)
+  export emr_cluster_id=$(cat /tmp/emr_cluster_id)
+
 
 	bash ${main_script_dir}/startAWSVMs.sh
 	#check status,to be done
@@ -53,6 +58,9 @@ else
 	echo "$(date '+%F %T'): not support test run mode ${run_mode}"
 	exit 1
 fi
+
+
+
 
 echo "$(date '+%F %T'): driver_host:${driver_host} private_driver_host:${private_driver_host} private_worker_hosts:${private_worker_hosts}"
 
@@ -89,16 +97,19 @@ ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host} "rm -rf ${sqls_home};mk
 scp -i ${local_key_file} -r ${local_sqls_home}/* ${cloud_vm_user}@${driver_host}:${sqls_home}/
 
 
-#check if need to prepare data for hdfs
-echo "$(date '+%F %T'): prepare data for hdfs"
-
 #do setup basic env,all ops are on driver host
 echo "$(date '+%F %T'): do setup basic env,all ops are on driver host"
 
-#need loop
+private_all_emr_node_ip=`cat /tmp/private_all_emr_node_ip` #comma seperated list
+
+#make an all ip list seperated by comma
+private_all_ip=${private_driver_host}","${private_worker_hosts}","${private_all_emr_node_ip}
+
+
+#need loop,because ssh may fail again!
 loop=0
 while true
-do 
+do
 	let loop++
 
 	ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host}  << EOF
@@ -111,7 +122,7 @@ do
   fi
 
 	#check if need to setup ansible and make a config
-	bash ./setupAnsible.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
+	bash ./setupAnsible.sh ${key_file} ${private_driver_host} ${private_worker_hosts} ${private_all_emr_node_ip} ${cloud_vm_user} ${emr_namenode_user}
 	if [ \$? -ne 0 ];then
 		exit 1
 	fi
@@ -136,9 +147,11 @@ EOF
 	if [ $? -eq 0 ];then
 		echo "$(date '+%F %T'): basic env setup done"
 		break
-	elif [ $? -ne 0 ] && [ ${loop} -ge 5 ];then
+	elif [ ${loop} -ge 5 ];then
 		echo "$(date '+%F %T'): basic env setup wrong"
 		exit 1
+	else
+	  continue
 	fi
 done
 
@@ -146,12 +159,6 @@ done
 
 #service test loop start
 echo "$(date '+%F %T'): service test loop start"
-export private_namenode_ip=$(cat /tmp/private_namenode_ip)
-
-export  emr_cluster_id="j-37OHJEAGF5PMZ"
-export  private_namenode_ip="172.31.22.244"
-export  namenode_ip="52.82.26.170"
-
 
 for sv in ${service[@]}
 do
@@ -173,7 +180,7 @@ do
 	#check if need to setup spark and start service
 	bash ./setup${sv}.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
 
-	#sleep 10000
+	#read
 
 	if [ \$? -ne 0 ];then
 		echo setup wrong
@@ -211,7 +218,7 @@ EOF
 	echo ""
 
 done #service test loop done
-#sleep 10000
+
 #upload all results to conbench,tbd
 echo "$(date '+%F %T'): upload result to conbench"
 
