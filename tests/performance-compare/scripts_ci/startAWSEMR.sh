@@ -46,10 +46,16 @@ done
 
 
 echo -e ${private_namenode_ip} > /tmp/private_namenode_ip #used for spark create table
-echo -e ${namenode_ip} > /tmp/namenode_ip #used for connecting namenode when data preparation 
+echo -e ${namenode_ip} > /tmp/namenode_ip #used for connecting namenode when data preparation
 
-#use namenode to upload data,not related with datanodes temporarily
-#datanode_ip_str=`aws emr list-instances --cluster-id ${emr_cluster_id}|grep 2xlarge|awk '{print $8,$10}'`
+echo -e `aws emr list-instances --cluster-id ${emr_cluster_id}|grep xlarge|awk '{print $8}'` > /tmp/private_all_emr_node_ip
+private_all_emr_node_ip=(`cat /tmp/private_all_emr_node_ip`)
+private_all_emr_node_ip_list=''
+for emr_node in ${private_all_emr_node_ip[@]}
+do
+  private_all_emr_node_ip_list=${emr_node}","${private_all_emr_node_ip_list}
+done
+echo -ne ${private_all_emr_node_ip_list%?} > /tmp/private_all_emr_node_ip
 
 echo "$(date '+%F %T'): hdfs health check!"
 sleep ${emr_start_waiting_time_s}
