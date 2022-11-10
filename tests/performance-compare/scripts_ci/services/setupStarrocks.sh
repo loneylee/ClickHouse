@@ -4,7 +4,6 @@
 ROOT_PATH=$(cd `dirname -- $0` && pwd -P)
 echo workers:$3
 
-#STARROCKS_INSTALL_HOME=/home/admin123/lishuai/starrocks
 key_file=$1
 DRIVER_HOST=$2
 WORKER_HOSTS=$3
@@ -14,8 +13,6 @@ IFS=","
 WORKER_HOSTS_ARR=(${WORKER_HOSTS})
 IFS="${OLD_IFS}"
 
-
-STARROCKS_VERSION=2.3.3
 
 # install fe
 ansible-playbook fe-playbook.yml --extra-vars "install_dir=${STARROCKS_INSTALL_HOME} starrock_version=${STARROCKS_VERSION} JAVA_HOME=${JAVA_HOME}"
@@ -46,7 +43,7 @@ done
 
 sleep 10
 
-alive_cnt=`mysql -h 127.0.0.1 -P9030 -uroot -e "SHOW PROC '/backends'\G"|grep "Alive: true"|wc -l`
+alive_cnt=`mysql -h ${DRIVER_HOST} -P9030 -uroot -e "SHOW PROC '/backends'\G"|grep "Alive: true"|wc -l`
 
 if [ ${#WORKER_HOSTS_ARR[*]} -ne $alive_cnt ];then
 	echo "$(date '+%F %T'): Starrocks not alive all! Have a check!"
@@ -56,7 +53,33 @@ fi
 echo "$(date '+%F %T'): Starrocks create databases"
 mysql -h ${DRIVER_HOST} -P9030 -uroot -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
 
-echo "$(date '+%F %T'): Starrocks is installed."
 
-# todo: add create table and load data
+# install broker
+ansible-playbook broker-playbook.yml --extra-vars "install_dir=${STARROCKS_INSTALL_HOME} starrock_version=${STARROCKS_VERSION} JAVA_HOME=${JAVA_HOME}"
+if [ $? -ne 0 ];then
+        echo "$(date '+%F %T'): Starrocks broker install failed! Have a check!"
+        exit 124
+fi
+
+for worker in ${WORKER_HOSTS_ARR[@]}
+do
+	echo "Add starrocks broker ${worker}"
+	mysql -h ${DRIVER_HOST} -P9030 -uroot -e "ALTER SYSTEM ADD BROKER broker_gluten \"${worker}:8000\";"
+	if [ $? -ne 0 ];then
+		echo "$(date '+%F %T'): Starrocks add broker ${worker} failed! Have a check!"
+		exit 125
+	fi
+  let brid++
+done
+
+sleep 10
+
+alive_cnt=`mysql -h ${DRIVER_HOST} -P9030 -uroot -e "SHOW PROC '/brokers'\G"|grep "Alive: true"|wc -l`
+
+if [ ${#WORKER_HOSTS_ARR[*]} -ne $alive_cnt ];then
+	echo "$(date '+%F %T'): Starrocks broker not alive all! Have a check!"
+	exit 126
+fi
+
+echo "$(date '+%F %T'): Starrocks is installed."
 

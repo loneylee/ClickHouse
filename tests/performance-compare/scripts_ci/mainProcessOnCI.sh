@@ -41,9 +41,9 @@ elif [ ${run_mode} = "aws" ];then
 	  bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}
 	  echo "$(date '+%F %T'): prepare data ready"
   fi
-  export namenode_ip=$(cat /tmp/namenode_ip)
-  export private_namenode_ip=$(cat /tmp/private_namenode_ip)
-  export emr_cluster_id=$(cat /tmp/emr_cluster_id)
+  export namenode_ip="68.79.43.17" #$(cat /tmp/namenode_ip)
+  export private_namenode_ip="172.31.31.141" #$(cat /tmp/private_namenode_ip)
+  export emr_cluster_id="j-28KGOBB5DAV32" #$(cat /tmp/emr_cluster_id)
 
 
 	bash ${main_script_dir}/startAWSVMs.sh
@@ -101,7 +101,7 @@ scp -i ${local_key_file} -r ${local_sqls_home}/* ${cloud_vm_user}@${driver_host}
 echo "$(date '+%F %T'): do setup basic env,all ops are on driver host"
 
 private_all_emr_node_ip=`cat /tmp/private_all_emr_node_ip` #comma seperated list
-
+private_all_emr_node_ip="172.31.31.141,172.31.21.243,172.31.27.234,172.31.30.86"
 #make an all ip list seperated by comma
 private_all_ip=${private_driver_host}","${private_worker_hosts}","${private_all_emr_node_ip}
 
@@ -180,7 +180,7 @@ do
 	#check if need to setup spark and start service
 	bash ./setup${sv}.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
 
-	#read
+	read
 
 	if [ \$? -ne 0 ];then
 		echo setup wrong
@@ -200,6 +200,7 @@ do
     exit 1
 	fi
 
+  read
 
 	#clean work
 	cd ${script_home}
