@@ -11,14 +11,26 @@ ENGINE = "starrocks"
 class StarrocksDBApiClient(mysql.MysqlDBApiClient):
     resource_name = "gluten_test"
 
+    def shard_by_sql(self, shard_cols):
+        if config.EXTERNAL_PATH != "":
+            return "DISTRIBUTED BY HASH(" + ','.join(shard_cols) + ") BUCKETS 24"
+        return ""
+
     def other_sql(self, table):
-        return """
-         properties (
+        if config.EXTERNAL_PATH != "":
+            return """
+            properties (
             "resource" = "{}",
             "table" = "{}",
             "database" = "{}"
-        )
-        """.format(self.resource_name, table.name, config.CONNECTION_DATABASE)
+            )
+            """.format(self.resource_name, table.name, config.CONNECTION_DATABASE)
+        return """
+        PROPERTIES(
+        "replication_num" = "1",
+        "in_memory" = "false",
+        "storage_format" = "DEFAULT"
+        )"""
 
     def random_column(self):
         return " random_key int default uuid(), "
