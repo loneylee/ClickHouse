@@ -107,7 +107,7 @@ class Tpch(object):
         t_customer.columns.append(Column("c_mktsegment", ColumnType.STRING))
         t_customer.columns.append(Column("c_comment", ColumnType.STRING))
         # t.engine = "MergeTree"
-        #t_customer.order_by
+        t_customer.shard_cols=["c_custkey"]
         return t_customer
 
 
@@ -129,6 +129,7 @@ class Tpch(object):
         t_lineitem.columns.append(Column("l_shipinstruct", ColumnType.STRING))
         t_lineitem.columns.append(Column("l_shipmode", ColumnType.STRING))
         t_lineitem.columns.append(Column("l_comment", ColumnType.STRING))
+        t_lineitem.shard_cols = ["l_orderkey"]
         return t_lineitem
 
     def nation(self):
@@ -137,6 +138,7 @@ class Tpch(object):
         t_nation.columns.append(Column("n_name", ColumnType.STRING))
         t_nation.columns.append(Column("n_regionkey", ColumnType.BIGINT))
         t_nation.columns.append(Column("n_comment", ColumnType.STRING))
+        t_nation.shard_cols=["n_nationkey"]
         return t_nation
 
     def orders(self):
@@ -150,6 +152,7 @@ class Tpch(object):
         t_orders.columns.append(Column("o_clerk", ColumnType.STRING))
         t_orders.columns.append(Column("o_shippriority", ColumnType.BIGINT))
         t_orders.columns.append(Column("o_comment", ColumnType.STRING))
+        t_orders.shard_cols=["o_orderkey"]
         return t_orders
 
     def part(self):
@@ -163,6 +166,7 @@ class Tpch(object):
         t_part.columns.append(Column("p_container", ColumnType.STRING))
         t_part.columns.append(Column("p_retailprice", ColumnType.DOUBLE))
         t_part.columns.append(Column("p_comment", ColumnType.STRING))
+        t_part.shard_cols=["p_partkey"]
         return t_part
 
     def partsupp(self):
@@ -172,6 +176,7 @@ class Tpch(object):
         t_partsupp.columns.append(Column("ps_availqty", ColumnType.BIGINT))
         t_partsupp.columns.append(Column("ps_supplycost", ColumnType.DOUBLE))
         t_partsupp.columns.append(Column("ps_comment", ColumnType.STRING))
+        t_partsupp.shard_cols=["ps_partkey"]
         return t_partsupp
 
     def region(self):
@@ -179,6 +184,7 @@ class Tpch(object):
         t_region.columns.append(Column("r_regionkey", ColumnType.BIGINT))
         t_region.columns.append(Column("r_name", ColumnType.STRING))
         t_region.columns.append(Column("r_comment", ColumnType.STRING))
+        t_region.shard_cols=["r_regionkey"]
         return t_region
 
     def supplier(self):
@@ -190,6 +196,7 @@ class Tpch(object):
         t_supplier.columns.append(Column("s_phone", ColumnType.STRING))
         t_supplier.columns.append(Column("s_acctbal", ColumnType.DOUBLE))
         t_supplier.columns.append(Column("s_comment", ColumnType.STRING))
+        t_supplier.shard_cols=["s_suppkey"]
         return t_supplier
 
     # t_region.columns.append(Column("",ColumnType.) )

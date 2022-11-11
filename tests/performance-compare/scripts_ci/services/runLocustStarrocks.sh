@@ -15,10 +15,6 @@ spark_home=$7
 
 echo "$(date '+%F %T'): Hive create databases"
 ${spark_home}/bin/beeline -u jdbc:hive2://${private_namenode_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
-${spark_home}/bin/beeline -u jdbc:hive2://${private_namenode_ip}:10000/ -n root -e "create database if not exists tpch100;create database if not exists tpch1000;"
-
-#call locust script,tbd
-echo "$(date '+%F %T'): call call locust script"
 
 #python3 ./test.py --iterations 10 --dialect-path ${sqls_home} --output-file ${result_home}/${sv}/$(date '+%Y-%m-%d-%H-%M-%S').csv -p 10000 --engine hive --host ${private_driver_host} --user root --password root
 # hive star rocks create table 1

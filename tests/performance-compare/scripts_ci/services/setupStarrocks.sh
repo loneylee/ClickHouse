@@ -52,6 +52,7 @@ fi
 
 echo "$(date '+%F %T'): Starrocks create databases"
 mysql -h ${DRIVER_HOST} -P9030 -uroot -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
+mysql -h ${DRIVER_HOST} -P9030 -uroot -e "create database if not exists tpch100;create database if not exists tpch1000;"
 
 
 # install broker
