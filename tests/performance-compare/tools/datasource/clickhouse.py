@@ -29,3 +29,6 @@ class ClickhouseDBApiClient(db_api_client.DBApiClient):
             return " ORDER BY tuple() "
 
         return " ORDER BY ( " + ",".join(order_by_column) + ") "
+
+    def trans_column_nullable(self, nullable):
+        return ""

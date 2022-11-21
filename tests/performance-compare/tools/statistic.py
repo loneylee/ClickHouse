@@ -28,6 +28,7 @@ parser.add_argument('--database', "-d", type=str, help='database', required=Fals
 parser.add_argument('--external-path', type=str, help='If not empty, it will query with external tables.',
                     required=False, default="")
 parser.add_argument('--metastore-uris', type=str, help='', required=False)
+parser.add_argument('--drop-table-before-create', type=str, help='drop table before create', required=False, default="false")
 parser.add_argument('--create-table-only', type=str, help='Will not running queries', required=False, default="false")
 parser.add_argument('--data-format', type=str, help='mergetree or parquet', required=False, default="parquet")
 
@@ -54,5 +55,10 @@ if __name__ == "__main__":
         config.ONLY_CREATE_TABLE = True
     else:
         config.ONLY_CREATE_TABLE = False
+
+    if args["drop_table_before_create"].lower() == "true":
+        config.DROP_TABLE_BEFORE_CREATE = True
+    else:
+        config.DROP_TABLE_BEFORE_CREATE = False
 
     locust_test.run()
