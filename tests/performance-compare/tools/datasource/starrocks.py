@@ -13,8 +13,8 @@ class StarrocksDBApiClient(mysql.MysqlDBApiClient):
 
     def shard_by_sql(self, shard_cols):
         if config.EXTERNAL_PATH != "":
-            return "DISTRIBUTED BY HASH(" + ','.join(shard_cols) + ") BUCKETS 24"
-        return ""
+            return ""
+        return "DISTRIBUTED BY HASH(" + ','.join(shard_cols) + ") BUCKETS 24"
 
     def other_sql(self, table):
         if config.EXTERNAL_PATH != "":

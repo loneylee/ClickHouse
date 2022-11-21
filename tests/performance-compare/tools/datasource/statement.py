@@ -49,7 +49,10 @@ class Table(object):
         if self.extrnal_path == "":
             extrnal_keyword = ""
         else:
-            sql.append("drop table if exists {}".format(self.name))
+            if config.DROP_TABLE_BEFORE_CREATE:
+                sql.append("drop table if exists {}".format(self.name))
+            else:
+                pass
 
         sql.append("""CREATE {extrnal} TABLE IF NOT EXISTS {table_name}
                     (

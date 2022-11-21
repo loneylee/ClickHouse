@@ -42,6 +42,7 @@ cd ${spark_home}/conf
 echo '#!/usr/bin/env bash' > spark-env.sh
 echo "export SPARK_WORKER_CORES=15" >> spark-env.sh
 echo "export SPARK_WORKER_MEMORY=60g" >> spark-env.sh
+#echo "export SPARK_LOCAL_DIRS=/dev/shm/" >> spark-env.sh
 ansible --key-file ${key_file} workers  -m copy -a "src=spark-env.sh dest=${spark_home}/conf/"
 
 #start master
@@ -103,8 +104,9 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.eventLog.compression.codec=snappy \
   --conf spark.memory.fraction=0.6 \
   --conf spark.memory.storageFraction=0.3 \
+  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.logger.level=information \
   --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.hdfs.libhdfs3_conf=/home/ubuntu/glutenTest/spark/spark-3.2.2-bin-hadoop2.7/conf/hdfs-site.xml
-#  --files ${spark_home}/conf/log4j_thrift.properties
+#  --conf spark.local.dir=/dev/shm/ \
 
 
 #start spark history server
@@ -115,14 +117,24 @@ echo "$(date '+%F %T'): start history server"
 #use beeline do a connection test
 echo "$(date '+%F %T'): do a connect test"
 sleep 10
-./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
+./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;create database if not exists tpch100;create database if not exists tpch1000;"
 if [ $? -ne 0 ];then
 	sleep 15
-	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;"
+	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;create database if not exists tpch100;create database if not exists tpch1000;"
 	if [ $? -ne 0 ];then
 		echo "$(date '+%F %T'): Spark not launched!Have a check!"
 		exit 102
 	fi
+fi
+
+
+echo "$(date '+%F %T'): get mergetree data from s3 and distribute to all worker nodes"
+res=`ls -A ${data_home}`
+if [ ! -d "${data_home}" ] || [ -z ${res} ]; then
+  echo "$(date '+%F %T'): data not exist,need download from s3"
+  ansible --key-file ${key_file} tcluster -m shell -a "mkdir -p ${data_home}/tpch100_ch_data"
+  aws s3 cp --recursive ${s3_data_source_home}/tpch100_ch_data ${data_home}/tpch100_ch_data
+  ansible --key-file ${key_file} workers  -m copy -a "src=${data_home}/tpch100_ch_data dest=${data_home}/"
 fi
 
 

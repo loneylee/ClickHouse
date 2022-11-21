@@ -176,6 +176,7 @@ do
 	ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host}  << EOF
 	cd ${script_home}
 	source var${sv}.conf
+	bash ./clean${sv}.sh ${key_file}
 	#check if need to setup spark and start service
 	bash ./setup${sv}.sh ${key_file} ${private_driver_host} ${private_worker_hosts}
 
@@ -186,18 +187,22 @@ do
     exit 1
 	fi
 
+	#read;sleep 10000
+
 	#call locust script,tbd
 	echo "$(date '+%F %T'): call locust script"
 	cd ${script_home}
 	mkdir -p ${result_home}/${sv}_${now_time}
-  bash ./runLocust${sv}.sh ${sqls_home} ${private_namenode_ip} ${iteration} ${result_home}/${sv}_${now_time} ${private_driver_host} ${locust_home} ${spark_home}
+	mkdir -p ${result_home}/${sv}_${now_time}_inner
+	echo "bash ./runLocust${sv}.sh ${sqls_home} ${private_namenode_ip} ${iteration} ${result_home}/${sv}_${now_time} ${private_driver_host} ${locust_home} ${spark_home} ${emr_namenode_user}"
+  bash ./runLocust${sv}.sh ${sqls_home} ${private_namenode_ip} ${iteration} ${result_home}/${sv}_${now_time} ${private_driver_host} ${locust_home} ${spark_home} ${emr_namenode_user}
 	if [ \$? -ne 0 ];then
 		cd ${script_home}
 		bash ./clean${sv}.sh ${key_file}
     exit 1
 	fi
 
-  read;sleep 10000
+  #read;sleep 10000
 
 	#clean work
 	cd ${script_home}
@@ -224,7 +229,7 @@ echo "$(date '+%F %T'): upload result to conbench"
 echo "$(date '+%F %T'): shutdown cloud vms and hdfs cluster!"
 if [ ${run_mode} = "aws" ];then
 	emr_cluster_id=$(cat /tmp/emr_cluster_id)
-	bash ${main_script_dir}/stopAWSVMs.sh
+	#bash ${main_script_dir}/stopAWSVMs.sh
 	#bash ${main_script_dir}/stopAWSEMR.sh ${emr_cluster_id}
 elif [ ${run_mode} = "gcp" ];then
 	echo "$(date '+%F %T'): stop vms on gcp to be done"
