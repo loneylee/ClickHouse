@@ -2,7 +2,7 @@
 
 本工具可在云上测试gluten、vanilla spark、starrocks、clickhouse的性能，其中clickhouse部分处于需求变化中，暂时是半完成状态；
 另外暂时屏蔽掉了关闭ec2和emr部分的调用，方便我们测试后能检查日志和下次测试复用emr上的数据；
-通过git clone https://github.com/loneylee/ClickHouse/tree/benchmark获取；
+通过git clone https://github.com/loneylee/ClickHouse/tree/benchmark 获取；
 工具脚本工程在ClickHouse/tests/performance-compare下面。
 
 ## quick start
