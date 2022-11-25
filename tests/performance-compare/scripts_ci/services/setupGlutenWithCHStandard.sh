@@ -61,7 +61,7 @@ echo "$(date '+%F %T'): start thrift server"
 ./sbin/start-thriftserver.sh \
   --master spark://${spark_master_ip}:7077 --deploy-mode client \
   --driver-memory 8g --driver-cores 3 \
-  --total-executor-cores 15 --executor-memory 30g --executor-cores 15 \
+  --total-executor-cores 45 --executor-memory 30g --executor-cores 15 \
   --conf spark.driver.memoryOverhead=4G \
   --conf spark.serializer=org.apache.spark.serializer.JavaSerializer \
   --conf spark.default.parallelism=120 \
