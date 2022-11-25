@@ -1,6 +1,11 @@
+SELECT min(aaa), min(bbb), min(sum_qty), min(sum_base_price),
+       min(sum_disc_price), min(sum_charge),
+       min(avg_qty), min(avg_price), min(avg_disc),
+       min(count_order) from (
 SELECT
-    l_returnflag,
-    l_linestatus,
+    l_partkey,
+    min(l_partkey) as aaa,
+    min(l_suppkey) as bbb,
     sum(l_quantity) AS sum_qty,
     sum(l_extendedprice) AS sum_base_price,
     sum(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
@@ -11,11 +16,7 @@ SELECT
     count(*) AS count_order
 FROM
     lineitem
-WHERE
-    l_shipdate <= date'1998-09-02' - interval 1 day
 GROUP BY
-    l_returnflag,
-    l_linestatus
+    l_partkey
 ORDER BY
-    l_returnflag,
-    l_linestatus;
+    l_partkey) as a;

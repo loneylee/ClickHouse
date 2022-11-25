@@ -7,7 +7,7 @@ fi
 
 key_file=$1
 
-<< EOF
+
 echo "$(date '+%F %T'): GlutenWithCHStandard clean work start!"
 ansible --key-file ${key_file} driver -m shell -a "jps|awk '{print \$1}'|xargs kill -9"
 ansible --key-file ${key_file} workers -m shell -a "jps|grep -i worker|awk '{print \$1}'|xargs kill -9"
@@ -25,4 +25,3 @@ else
 	echo "$(date '+%F %T'): GlutenWithCHStandard clean work not done!"
 	exit 103
 fi
-EOF

@@ -205,10 +205,12 @@ do
   #read;sleep 10000
 
 	#clean work
-	cd ${script_home}
-	bash ./clean${sv}.sh ${key_file}
-	if [ \$? -ne 0 ];then
+	if [ ${clean_env_when_service_done} -eq 1 ];then
+	  cd ${script_home}
+	  bash ./clean${sv}.sh ${key_file}
+	  if [ \$? -ne 0 ];then
         	exit 1
+	  fi
 	fi
 
 EOF

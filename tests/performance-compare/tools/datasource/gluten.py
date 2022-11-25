@@ -15,3 +15,9 @@ class GlutenDBApiClient(hive.HiveDBApiClient):
 
     def location_sql(self, location_uri):
         return " LOCATION '{}'".format(location_uri)
+
+    def trans_column_nullable(self, nullable):
+        if nullable:
+            return " NULL "
+        else:
+            return " NOT NULL "
