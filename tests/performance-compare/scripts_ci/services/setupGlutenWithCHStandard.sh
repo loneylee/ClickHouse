@@ -33,7 +33,7 @@ if [ ! -d "${spark_home}" ];then
 	
 fi
 
-ansible --key-file ${key_file} tcluster -m shell -a "rm -f ${spark_home}/jars/gluten*.jar"
+ansible --key-file ${key_file} tcluster -m shell -a "rm -f ${spark_home}/jars/gluten*.jar;mkdir -p /tmp/clickhouse"
 ansible --key-file ${key_file} tcluster -m copy -a "src=${gluten_standard_jar} dest=${spark_home}/jars/"
 ansible --key-file ${key_file} workers  -m copy -a "src=${libch_standard_so} dest=${libch_standard_so}"
 
@@ -61,7 +61,7 @@ echo "$(date '+%F %T'): start thrift server"
 ./sbin/start-thriftserver.sh \
   --master spark://${spark_master_ip}:7077 --deploy-mode client \
   --driver-memory 8g --driver-cores 3 \
-  --total-executor-cores 45 --executor-memory 30g --executor-cores 15 \
+  --total-executor-cores 15 --executor-memory 30g --executor-cores 15 \
   --conf spark.driver.memoryOverhead=4G \
   --conf spark.serializer=org.apache.spark.serializer.JavaSerializer \
   --conf spark.default.parallelism=120 \
@@ -76,7 +76,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.locality.wait.process=0 \
   --conf spark.sql.columnVector.offheap.enabled=true \
   --conf spark.memory.offHeap.enabled=true \
-  --conf spark.memory.offHeap.size=30g \
+  --conf spark.memory.offHeap.size=60g \
   --conf spark.plugins=io.glutenproject.GlutenPlugin \
   --conf spark.gluten.sql.columnar.columnartorow=true \
   --conf spark.gluten.sql.columnar.loadnative=true \
@@ -107,7 +107,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.logger.level=information \
   --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.hdfs.libhdfs3_conf=/home/ubuntu/glutenTest/spark/spark-3.2.2-bin-hadoop2.7/conf/hdfs-site.xml
 #  --conf spark.local.dir=/dev/shm/ \
-
+#  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.local_engine.settings.max_bytes_before_external_group_by=1000000000 \
 
 #start spark history server
 export SPARK_HISTORY_OPTS=" -Dspark.history.ui.port=12222 -Dspark.history.fs.logDirectory=file://${spark_event_logs} -Dspark.history.retainedApplications=200 -Dspark.history.fs.update.interval=30s"

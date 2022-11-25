@@ -3,7 +3,8 @@ from enum import Enum
 
 from common import config
 
-TABLE_NAMES = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
+# TABLE_NAMES = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
+TABLE_NAMES = ["lineitem"]
 log = config.log
 
 
@@ -101,105 +102,105 @@ class Tpch(object):
 
     def customer(self):
         t_customer = Table("customer")
-        t_customer.columns.append(Column("c_custkey", ColumnType.BIGINT))
-        t_customer.columns.append(Column("c_name", ColumnType.STRING))
-        t_customer.columns.append(Column("c_address", ColumnType.STRING))
-        t_customer.columns.append(Column("c_nationkey", ColumnType.BIGINT))
-        t_customer.columns.append(Column("c_phone", ColumnType.STRING))
-        t_customer.columns.append(Column("c_acctbal", ColumnType.DOUBLE))
-        t_customer.columns.append(Column("c_mktsegment", ColumnType.STRING))
-        t_customer.columns.append(Column("c_comment", ColumnType.STRING))
+        t_customer.columns.append(Column("c_custkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_customer.columns.append(Column("c_name", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_customer.columns.append(Column("c_address", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_customer.columns.append(Column("c_nationkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_customer.columns.append(Column("c_phone", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_customer.columns.append(Column("c_acctbal", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_customer.columns.append(Column("c_mktsegment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_customer.columns.append(Column("c_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
         # t.engine = "MergeTree"
-        t_customer.shard_cols=["c_custkey"]
+        t_customer.shard_cols=["c_custkey","c_name","c_address","c_nationkey","c_phone","c_mktsegment","c_comment"]
         return t_customer
 
 
     def lineitem(self):
         t_lineitem = Table("lineitem")
-        t_lineitem.columns.append(Column("l_orderkey", ColumnType.BIGINT))
-        t_lineitem.columns.append(Column("l_partkey", ColumnType.BIGINT))
-        t_lineitem.columns.append(Column("l_suppkey", ColumnType.BIGINT))
-        t_lineitem.columns.append(Column("l_linenumber", ColumnType.BIGINT))
-        t_lineitem.columns.append(Column("l_quantity", ColumnType.DOUBLE))
-        t_lineitem.columns.append(Column("l_extendedprice", ColumnType.DOUBLE))
-        t_lineitem.columns.append(Column("l_discount", ColumnType.DOUBLE))
-        t_lineitem.columns.append(Column("l_tax", ColumnType.DOUBLE))
-        t_lineitem.columns.append(Column("l_returnflag", ColumnType.STRING))
-        t_lineitem.columns.append(Column("l_linestatus", ColumnType.STRING))
-        t_lineitem.columns.append(Column("l_shipdate", ColumnType.DATE))
-        t_lineitem.columns.append(Column("l_commitdate", ColumnType.DATE))
-        t_lineitem.columns.append(Column("l_receiptdate", ColumnType.DATE))
-        t_lineitem.columns.append(Column("l_shipinstruct", ColumnType.STRING))
-        t_lineitem.columns.append(Column("l_shipmode", ColumnType.STRING))
-        t_lineitem.columns.append(Column("l_comment", ColumnType.STRING))
-        t_lineitem.shard_cols = ["l_orderkey"]
+        t_lineitem.columns.append(Column("l_orderkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_partkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_suppkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_linenumber", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_quantity", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_extendedprice", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_discount", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_tax", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_returnflag", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_linestatus", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_shipdate", ColumnType.DATE, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_commitdate", ColumnType.DATE, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_receiptdate", ColumnType.DATE, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_shipinstruct", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_shipmode", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_lineitem.columns.append(Column("l_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_lineitem.shard_cols = ["l_orderkey","l_partkey","l_suppkey","l_linenumber","l_shipmode","l_comment"]
         return t_lineitem
 
     def nation(self):
         t_nation = Table("nation")
-        t_nation.columns.append(Column("n_nationkey", ColumnType.BIGINT))
-        t_nation.columns.append(Column("n_name", ColumnType.STRING))
-        t_nation.columns.append(Column("n_regionkey", ColumnType.BIGINT))
-        t_nation.columns.append(Column("n_comment", ColumnType.STRING))
-        t_nation.shard_cols=["n_nationkey"]
+        t_nation.columns.append(Column("n_nationkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_nation.columns.append(Column("n_name", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_nation.columns.append(Column("n_regionkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_nation.columns.append(Column("n_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_nation.shard_cols=["n_nationkey","n_name","n_regionkey","n_comment"]
         return t_nation
 
     def orders(self):
         t_orders = Table("orders")
-        t_orders.columns.append(Column("o_orderkey", ColumnType.BIGINT))
-        t_orders.columns.append(Column("o_custkey", ColumnType.BIGINT))
-        t_orders.columns.append(Column("o_orderstatus", ColumnType.STRING))
-        t_orders.columns.append(Column("o_totalprice", ColumnType.DOUBLE))
-        t_orders.columns.append(Column("o_orderdate", ColumnType.DATE))
-        t_orders.columns.append(Column("o_orderpriority", ColumnType.STRING))
-        t_orders.columns.append(Column("o_clerk", ColumnType.STRING))
-        t_orders.columns.append(Column("o_shippriority", ColumnType.BIGINT))
-        t_orders.columns.append(Column("o_comment", ColumnType.STRING))
-        t_orders.shard_cols=["o_orderkey"]
+        t_orders.columns.append(Column("o_orderkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_custkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_orderstatus", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_totalprice", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_orderdate", ColumnType.DATE, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_orderpriority", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_clerk", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_shippriority", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_orders.columns.append(Column("o_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_orders.shard_cols=["o_orderkey","o_custkey","o_orderstatus","o_clerk","o_comment"]
         return t_orders
 
     def part(self):
         t_part = Table("part")
-        t_part.columns.append(Column("p_partkey", ColumnType.BIGINT))
-        t_part.columns.append(Column("p_name", ColumnType.STRING))
-        t_part.columns.append(Column("p_mfgr", ColumnType.STRING))
-        t_part.columns.append(Column("p_brand", ColumnType.STRING))
-        t_part.columns.append(Column("p_type", ColumnType.STRING))
-        t_part.columns.append(Column("p_size", ColumnType.BIGINT))
-        t_part.columns.append(Column("p_container", ColumnType.STRING))
-        t_part.columns.append(Column("p_retailprice", ColumnType.DOUBLE))
-        t_part.columns.append(Column("p_comment", ColumnType.STRING))
-        t_part.shard_cols=["p_partkey"]
+        t_part.columns.append(Column("p_partkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_name", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_mfgr", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_brand", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_type", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_size", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_container", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_retailprice", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_part.columns.append(Column("p_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_part.shard_cols=["p_partkey","p_name","p_mfgr","p_brand","p_type","p_comment"]
         return t_part
 
     def partsupp(self):
         t_partsupp = Table("partsupp")
-        t_partsupp.columns.append(Column("ps_partkey", ColumnType.BIGINT))
-        t_partsupp.columns.append(Column("ps_suppkey", ColumnType.BIGINT))
-        t_partsupp.columns.append(Column("ps_availqty", ColumnType.BIGINT))
-        t_partsupp.columns.append(Column("ps_supplycost", ColumnType.DOUBLE))
-        t_partsupp.columns.append(Column("ps_comment", ColumnType.STRING))
-        t_partsupp.shard_cols=["ps_partkey"]
+        t_partsupp.columns.append(Column("ps_partkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_partsupp.columns.append(Column("ps_suppkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_partsupp.columns.append(Column("ps_availqty", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_partsupp.columns.append(Column("ps_supplycost", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_partsupp.columns.append(Column("ps_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_partsupp.shard_cols=["ps_partkey","ps_suppkey","ps_availqty","ps_comment"]
         return t_partsupp
 
     def region(self):
         t_region = Table("region")
-        t_region.columns.append(Column("r_regionkey", ColumnType.BIGINT))
-        t_region.columns.append(Column("r_name", ColumnType.STRING))
-        t_region.columns.append(Column("r_comment", ColumnType.STRING))
-        t_region.shard_cols=["r_regionkey"]
+        t_region.columns.append(Column("r_regionkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_region.columns.append(Column("r_name", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_region.columns.append(Column("r_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_region.shard_cols=["r_regionkey","r_name","r_comment"]
         return t_region
 
     def supplier(self):
         t_supplier = Table("supplier")
-        t_supplier.columns.append(Column("s_suppkey", ColumnType.BIGINT))
-        t_supplier.columns.append(Column("s_name", ColumnType.STRING))
-        t_supplier.columns.append(Column("s_address", ColumnType.STRING))
-        t_supplier.columns.append(Column("s_nationkey", ColumnType.BIGINT))
-        t_supplier.columns.append(Column("s_phone", ColumnType.STRING))
-        t_supplier.columns.append(Column("s_acctbal", ColumnType.DOUBLE))
-        t_supplier.columns.append(Column("s_comment", ColumnType.STRING))
-        t_supplier.shard_cols=["s_suppkey"]
+        t_supplier.columns.append(Column("s_suppkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_supplier.columns.append(Column("s_name", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_supplier.columns.append(Column("s_address", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_supplier.columns.append(Column("s_nationkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
+        t_supplier.columns.append(Column("s_phone", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_supplier.columns.append(Column("s_acctbal", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
+        t_supplier.columns.append(Column("s_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
+        t_supplier.shard_cols=["s_suppkey","s_name","s_address","s_nationkey","s_phone","s_comment"]
         return t_supplier
 
     # t_region.columns.append(Column("",ColumnType.) )

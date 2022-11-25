@@ -31,6 +31,8 @@ parser.add_argument('--metastore-uris', type=str, help='', required=False)
 parser.add_argument('--drop-table-before-create', type=str, help='drop table before create', required=False, default="false")
 parser.add_argument('--create-table-only', type=str, help='Will not running queries', required=False, default="false")
 parser.add_argument('--data-format', type=str, help='mergetree or parquet', required=False, default="parquet")
+parser.add_argument('--column-nullable', type=str, help='allow column null', required=False, default="false")
+
 
 
 
@@ -60,5 +62,10 @@ if __name__ == "__main__":
         config.DROP_TABLE_BEFORE_CREATE = True
     else:
         config.DROP_TABLE_BEFORE_CREATE = False
+
+    if args["column_nullable"].lower() == "true":
+        config.COLUMN_NULLABLE= True
+    else:
+        config.COLUMN_NULLABLE = False
 
     locust_test.run()
