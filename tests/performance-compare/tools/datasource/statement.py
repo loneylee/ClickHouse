@@ -3,8 +3,8 @@ from enum import Enum
 
 from common import config
 
-# TABLE_NAMES = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
-TABLE_NAMES = ["lineitem"]
+TABLE_NAMES = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
+#TABLE_NAMES = ["orders"]
 log = config.log
 
 

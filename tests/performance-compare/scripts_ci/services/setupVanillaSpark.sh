@@ -56,11 +56,11 @@ echo "$(date '+%F %T'): start thrift server"
   --total-executor-cores 45 --executor-memory 30g --executor-cores 15 \
   --conf spark.driver.memoryOverhead=4G \
   --conf spark.serializer=org.apache.spark.serializer.JavaSerializer \
-  --conf spark.default.parallelism=120 \
+  --conf spark.default.parallelism=45 \
   --conf spark.sql.shuffle.partitions=90 \
   --conf spark.sql.files.minPartitionNum=1 \
-  --conf spark.sql.files.maxPartitionBytes=671088640 \
-  --conf spark.sql.files.openCostInBytes=671088640 \
+  --conf spark.sql.files.maxPartitionBytes=1G \
+  --conf spark.sql.files.openCostInBytes=1073741824 \
   --conf spark.sql.parquet.filterPushdown=true \
   --conf spark.sql.parquet.enableVectorizedReader=true \
   --conf spark.locality.wait=0 \
@@ -94,6 +94,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.eventLog.compression.codec=snappy \
   --conf spark.memory.fraction=0.6 \
   --conf spark.memory.storageFraction=0.3 \
+  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.local_engine.settings.max_bytes_before_external_group_by=1000000000 \
   --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.hdfs.libhdfs3_conf=/home/ubuntu/glutenTest/spark/spark-3.2.2-bin-hadoop2.7/conf/hdfs-site.xml
 #  --files ${spark_home}/conf/log4j_thrift.properties
 

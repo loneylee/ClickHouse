@@ -66,12 +66,14 @@ fi
 echo "$(date '+%F %T'): driver_host:${driver_host} private_driver_host:${private_driver_host} private_worker_hosts:${private_worker_hosts}"
 
 
+
 #put secret pem(key file) to driver host.First remove then upload,or there will be a "Permission denied" error
 echo "$(date '+%F %T'): put secret pem(key file) to driver host.First remove then upload"
 ssh -o StrictHostKeyChecking=no -i ${local_key_file} ${cloud_vm_user}@${driver_host} "rm ${key_file}"
 scp -i ${local_key_file} ${local_key_file} ${cloud_vm_user}@${driver_host}:${key_file}
 
-
+#copy emr id file to driver host for timely cluster shutting down control
+scp -i ${local_key_file}  /tmp/emr_cluster_id ${cloud_vm_user}@${driver_host}:/tmp/
 
 #get all newly updated scripts into script_home
 echo "$(date '+%F %T'): get all newly updated scripts into script_home"

@@ -33,7 +33,7 @@ if [ ! -d "${spark_home}" ];then
 	
 fi
 
-ansible --key-file ${key_file} tcluster -m shell -a "rm -f ${spark_home}/jars/gluten*.jar;mkdir -p /tmp/clickhouse"
+ansible --key-file ${key_file} tcluster -m shell -a "rm -f ${spark_home}/jars/gluten*.jar;mkdir -p /tmp/clickhouse;mkdir -p /tmp/libch"
 ansible --key-file ${key_file} tcluster -m copy -a "src=${gluten_standard_jar} dest=${spark_home}/jars/"
 ansible --key-file ${key_file} workers  -m copy -a "src=${libch_standard_so} dest=${libch_standard_so}"
 
@@ -64,11 +64,11 @@ echo "$(date '+%F %T'): start thrift server"
   --total-executor-cores 45 --executor-memory 30g --executor-cores 15 \
   --conf spark.driver.memoryOverhead=4G \
   --conf spark.serializer=org.apache.spark.serializer.JavaSerializer \
-  --conf spark.default.parallelism=120 \
+  --conf spark.default.parallelism=45 \
   --conf spark.sql.shuffle.partitions=90 \
   --conf spark.sql.files.minPartitionNum=1 \
-  --conf spark.sql.files.maxPartitionBytes=671088640 \
-  --conf spark.sql.files.openCostInBytes=671088640 \
+  --conf spark.sql.files.maxPartitionBytes=1G \
+  --conf spark.sql.files.openCostInBytes=1073741824 \
   --conf spark.sql.parquet.filterPushdown=true \
   --conf spark.sql.parquet.enableVectorizedReader=true \
   --conf spark.locality.wait=0 \
@@ -76,7 +76,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.locality.wait.process=0 \
   --conf spark.sql.columnVector.offheap.enabled=true \
   --conf spark.memory.offHeap.enabled=true \
-  --conf spark.memory.offHeap.size=60g \
+  --conf spark.memory.offHeap.size=30g \
   --conf spark.plugins=io.glutenproject.GlutenPlugin \
   --conf spark.gluten.sql.columnar.columnartorow=true \
   --conf spark.gluten.sql.columnar.loadnative=true \
@@ -86,7 +86,10 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.gluten.sql.columnar.backend.lib=ch \
   --conf spark.gluten.sql.columnar.hashagg.enablefinal=true \
   --conf spark.gluten.sql.enable.native.validation=false \
-  --conf spark.io.compression.codec=snappy \
+  --conf spark.io.compression.codec=LZ4 \
+  --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager \
+  --conf spark.gluten.sql.columnar.shuffleSplitDefaultSize=65505 \
+  --conf spark.sql.adaptive.enabled=false \
   --conf spark.gluten.sql.columnar.backend.ch.use.v2=false \
   --conf spark.sql.exchange.reuse=true \
   --conf spark.sql.autoBroadcastJoinThreshold=10MB \
@@ -104,10 +107,12 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.eventLog.compression.codec=snappy \
   --conf spark.memory.fraction=0.6 \
   --conf spark.memory.storageFraction=0.3 \
-  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.logger.level=information \
+  --conf spark.gluten.sql.columnar.sort=false \
+  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.logger.level=error \
+  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.local_engine.settings.max_bytes_before_external_group_by=1000000000 \
   --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.hdfs.libhdfs3_conf=/home/ubuntu/glutenTest/spark/spark-3.2.2-bin-hadoop2.7/conf/hdfs-site.xml
 #  --conf spark.local.dir=/dev/shm/ \
-#  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.local_engine.settings.max_bytes_before_external_group_by=1000000000 \
+
 
 #start spark history server
 export SPARK_HISTORY_OPTS=" -Dspark.history.ui.port=12222 -Dspark.history.fs.logDirectory=file://${spark_event_logs} -Dspark.history.retainedApplications=200 -Dspark.history.fs.update.interval=30s"
@@ -127,7 +132,7 @@ if [ $? -ne 0 ];then
 	fi
 fi
 
-
+<< EOF
 echo "$(date '+%F %T'): get mergetree data from s3 and distribute to all worker nodes"
 res=`ls -A ${data_home}`
 if [ ! -d "${data_home}" ] || [ -z ${res} ]; then
@@ -136,6 +141,7 @@ if [ ! -d "${data_home}" ] || [ -z ${res} ]; then
   aws s3 cp --recursive ${s3_data_source_home}/tpch100_ch_data ${data_home}/tpch100_ch_data
   ansible --key-file ${key_file} workers  -m copy -a "src=${data_home}/tpch100_ch_data dest=${data_home}/"
 fi
+EOF
 
 
 echo "$(date '+%F %T'): GlutenWithCHStandard service is on" 
