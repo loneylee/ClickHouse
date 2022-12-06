@@ -6,8 +6,7 @@ if [ $# -ne 6 ];then
 fi
 
 echo "$(date '+%F %T'): ansible setup begin"
-
-sudo apt-get update
+sudo apt-get update -y
 
 
 #python >= 2.7
