@@ -31,6 +31,7 @@ def init_stmt(dialect):
 class DBApiClient(metaclass=ABCMeta):
     def __init__(self, environment):
         self.stmt = None
+        self.stmt_sort_by_name = []
         self.env = environment
         self.create_table_sql = statement.Tpch().create_table_sql(self)
         try:
@@ -52,13 +53,15 @@ class DBApiClient(metaclass=ABCMeta):
                             self.stmt.pop(k, "")
                         else:
                             self.stmt[k] = other[k]
+            self.stmt_sort_by_name = list(self.stmt.keys())
+            self.stmt_sort_by_name.sort()
 
     @abstractmethod
     def create_connection(self):
         pass
 
     def query(self):
-        for name in self.stmt:
+        for name in self.stmt_sort_by_name:
             self.locust_statistic(name, self.stmt[name])
 
     def locust_statistic(self, name, stmt):
