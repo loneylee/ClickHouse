@@ -1,5 +1,7 @@
+#include "SerializedPlanParser.h"
 #include <memory>
 #include <base/logger_useful.h>
+#include <base/Decimal.h>
 #include <AggregateFunctions/AggregateFunctionFactory.h>
 #include <AggregateFunctions/registerAggregateFunctions.h>
 #include <Builder/BroadCastJoinBuilder.h>
@@ -9,10 +11,15 @@
 #include <Core/NamesAndTypes.h>
 #include <DataTypes/DataTypeAggregateFunction.h>
 #include <DataTypes/DataTypeDate32.h>
+#include <DataTypes/DataTypeDateTime64.h>
 #include <DataTypes/DataTypeSet.h>
 #include <DataTypes/DataTypeString.h>
+#include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeArray.h>
+#include <DataTypes/DataTypeMap.h>
+#include <DataTypes/DataTypeTuple.h>
 #include <Functions/FunctionFactory.h>
 #include <Functions/registerFunctions.h>
 #include <Interpreters/ActionsDAG.h>
@@ -35,19 +42,26 @@
 #include <Storages/CustomStorageMergeTree.h>
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Storages/StorageMergeTreeFactory.h>
+#include <Storages/SubstraitSource/SubstraitFileSource.h>
+#include <base/logger_useful.h>
+#include <google/protobuf/util/json_util.h>
+#include <google/protobuf/wrappers.pb.h>
 #include <Poco/StringTokenizer.h>
 #include <Poco/Util/MapConfiguration.h>
 #include <Common/DebugUtils.h>
 #include <Common/JoinHelper.h>
 #include <Common/MergeTreeTool.h>
 #include <Common/StringUtils.h>
-#include <google/protobuf/util/json_util.h>
-#include <Storages/SubstraitSource/SubstraitFileSource.h>
 
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Processors/QueryPlan/SortingStep.h>
-#include "SerializedPlanParser.h"
+#include <DataTypes/DataTypeFactory.h>
+#include <DataTypes/Serializations/ISerialization.h>
+#include <base/types.h>
 #include <Storages/IStorage.h>
+#include <sys/select.h>
+#include <Common/CHUtil.h>
+#include "SerializedPlanParser.h"
 
 namespace DB
 {
@@ -58,6 +72,7 @@ namespace ErrorCodes
     extern const int BAD_ARGUMENTS;
     extern const int NO_SUCH_DATA_PART;
     extern const int UNKNOWN_FUNCTION;
+    extern const int CANNOT_PARSE_PROTOBUF_SCHEMA;
 }
 }
 
@@ -76,73 +91,98 @@ void join(ActionsDAG::NodeRawConstPtrs v, char c, std::string & s)
     }
 }
 
-std::string typeName(const substrait::Type & type)
+bool isTypeMatched(const substrait::Type & substrait_type, const DataTypePtr & ch_type)
 {
-    if (type.has_string())
-    {
-        return "String";
-    }
-    else if (type.has_i8())
-    {
-        return "I8";
-    }
-    else if (type.has_i16())
-    {
-        return "I16";
-    }
-    else if (type.has_i32())
-    {
-        return "I32";
-    }
-    else if (type.has_i64())
-    {
-        return "I64";
-    }
-    else if (type.has_fp32())
-    {
-        return "FP32";
-    }
-    else if (type.has_fp64())
-    {
-        return "FP64";
-    }
-    else if (type.has_bool_())
-    {
-        return "Boolean";
-    }
-    else if (type.has_date())
-    {
-        return "Date";
-    }
-    else if (type.has_timestamp())
-    {
-        return "Timestamp";
-    }
-
-    throw Exception(ErrorCodes::UNKNOWN_TYPE, "unknown type {}", magic_enum::enum_name(type.kind_case()));
+    const auto parsed_ch_type = SerializedPlanParser::parseType(substrait_type);
+    return parsed_ch_type->equals(*ch_type);
 }
 
-bool isTypeSame(const substrait::Type & type, DataTypePtr data_type)
+void SerializedPlanParser::parseExtensions(
+    const ::google::protobuf::RepeatedPtrField<substrait::extensions::SimpleExtensionDeclaration> & extensions)
 {
-    static const std::map<std::string, std::string> type_mapping
-        = {{"I8", "Int8"},
-           {"I16", "Int16"},
-           {"I32", "Int32"},
-           {"I64", "Int64"},
-           {"FP32", "Float32"},
-           {"FP64", "Float64"},
-           {"Date", "Date32"},
-           {"Timestamp", "DateTime64(6)"},
-           {"String", "String"},
-           {"Boolean", "UInt8"}};
-
-    std::string type_name = typeName(type);
-    if (!type_mapping.contains(type_name))
-        throw Exception(ErrorCodes::UNKNOWN_TYPE, "Unknown type {}", type_name);
-
-    return type_mapping.at(type_name) == data_type->getName();
+    for (const auto & extension : extensions)
+    {
+        if (extension.has_extension_function())
+        {
+            function_mapping.emplace(
+                std::to_string(extension.extension_function().function_anchor()), extension.extension_function().name());
+        }
+    }
 }
 
+std::shared_ptr<DB::ActionsDAG> SerializedPlanParser::expressionsToActionsDAG(
+        const ::google::protobuf::RepeatedPtrField<substrait::Expression> & expressions,
+        const DB::Block & header,
+        const DB::Block & read_schema)
+{
+    auto actions_dag = std::make_shared<ActionsDAG>(blockToNameAndTypeList(header));
+    NamesWithAliases required_columns;
+    std::set<String> distinct_columns;
+
+    for (const auto & expr : expressions)
+    {
+        if (expr.has_selection())
+        {
+            auto position = expr.selection().direct_reference().struct_field().field();
+            const ActionsDAG::Node * field = actions_dag->tryFindInIndex(read_schema.getByPosition(position).name);
+            if (distinct_columns.contains(field->result_name))
+            {
+                auto unique_name = getUniqueName(field->result_name);
+                required_columns.emplace_back(NameWithAlias(field->result_name, unique_name));
+                distinct_columns.emplace(unique_name);
+            }
+            else
+            {
+                required_columns.emplace_back(NameWithAlias(field->result_name, field->result_name));
+                distinct_columns.emplace(field->result_name);
+            }
+        }
+        else if (expr.has_scalar_function())
+        {
+            std::string name;
+            std::vector<String> useless;
+            actions_dag = parseFunction(header, expr, name, useless, actions_dag, true);
+            if (!name.empty())
+            {
+                if (distinct_columns.contains(name))
+                {
+                    auto unique_name = getUniqueName(name);
+                    required_columns.emplace_back(NameWithAlias(name, unique_name));
+                    distinct_columns.emplace(unique_name);
+                }
+                else
+                {
+                    required_columns.emplace_back(NameWithAlias(name, name));
+                    distinct_columns.emplace(name);
+                }
+            }
+        }
+        else if (expr.has_cast() || expr.has_if_then() || expr.has_literal())
+        {
+            const auto * node = parseArgument(actions_dag, expr);
+            actions_dag->addOrReplaceInIndex(*node);
+            if (distinct_columns.contains(node->result_name))
+            {
+                auto unique_name = getUniqueName(node->result_name);
+                required_columns.emplace_back(NameWithAlias(node->result_name, unique_name));
+                distinct_columns.emplace(unique_name);
+            }
+            else
+            {
+                required_columns.emplace_back(NameWithAlias(node->result_name, node->result_name));
+                distinct_columns.emplace(node->result_name);
+            }
+        }
+        else
+        {
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "unsupported projection type {}.", magic_enum::enum_name(expr.rex_type_case()));
+        }
+    }
+    actions_dag->project(required_columns);
+    return actions_dag;
+}
+
+/// TODO: This function needs to be improved for Decimal/Array/Map/Tuple types.
 std::string getCastFunction(const substrait::Type & type)
 {
     std::string ch_function_name;
@@ -154,7 +194,7 @@ std::string getCastFunction(const substrait::Type & type)
     {
         ch_function_name = "toFloat32";
     }
-    else if (type.has_string())
+    else if (type.has_string() || type.has_binary())
     {
         ch_function_name = "toString";
     }
@@ -190,6 +230,8 @@ std::string getCastFunction(const substrait::Type & type)
     else
         throw Exception(ErrorCodes::UNKNOWN_TYPE, "doesn't support cast type {}", type.DebugString());
 
+    /// TODO(taiyang-li): implement cast functions of other types
+
     return ch_function_name;
 }
 
@@ -223,26 +265,54 @@ QueryPlanPtr SerializedPlanParser::parseReadRealWithJavaIter(const substrait::Re
     auto pos = iter.find(':');
     auto iter_index = std::stoi(iter.substr(pos + 1, iter.size()));
     auto plan = std::make_unique<QueryPlan>();
+
     auto source = std::make_shared<SourceFromJavaIter>(parseNameStruct(rel.base_schema()), input_iters[iter_index]);
     QueryPlanStepPtr source_step = std::make_unique<ReadFromPreparedSource>(Pipe(source), context);
     source_step->setStepDescription("Read From Java Iter");
     plan->addStep(std::move(source_step));
+
     return plan;
+}
+
+void SerializedPlanParser::addRemoveNullableStep(QueryPlan & plan, std::vector<String> columns)
+{
+    if (columns.empty()) return;
+    auto remove_nullable_actions_dag
+        = std::make_shared<ActionsDAG>(blockToNameAndTypeList(plan.getCurrentDataStream().header));
+    removeNullable(columns, remove_nullable_actions_dag);
+    auto expression_step = std::make_unique<ExpressionStep>(plan.getCurrentDataStream(), remove_nullable_actions_dag);
+    expression_step->setStepDescription("Remove nullable properties");
+    plan.addStep(std::move(expression_step));
 }
 
 QueryPlanPtr SerializedPlanParser::parseMergeTreeTable(const substrait::ReadRel & rel)
 {
-    Stopwatch watch;
-    watch.start();
     assert(rel.has_extension_table());
-    assert(rel.has_base_schema());
-    std::string table = rel.extension_table().detail().value();
-    auto merge_tree_table = local_engine::parseMergeTreeTableString(table);
-    auto header = parseNameStruct(rel.base_schema());
+    google::protobuf::StringValue table;
+    table.ParseFromString(rel.extension_table().detail().value());
+    auto merge_tree_table = local_engine::parseMergeTreeTableString(table.value());
+    DB::Block header;
+    if (rel.has_base_schema() && rel.base_schema().names_size())
+    {
+        header = parseNameStruct(rel.base_schema());
+    }
+    else
+    {
+        // For count(*) case, there will be an empty base_schema, so we try to read at least once column
+        auto all_parts_dir = MergeTreeUtil::getAllMergeTreeParts( std::filesystem::path("/") / merge_tree_table.relative_path);
+        if (all_parts_dir.empty())
+        {
+            throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "Empty mergetree directory: {}", merge_tree_table.relative_path);
+        }
+        auto part_names_types_list = MergeTreeUtil::getSchemaFromMergeTreePart(all_parts_dir[0]);
+        NamesAndTypesList one_column_name_type;
+        one_column_name_type.push_back(part_names_types_list.front());
+        header = BlockUtil::buildHeader(one_column_name_type);
+        LOG_DEBUG(&Poco::Logger::get("SerializedPlanParser"), "Try to read ({}) instead of empty header", header.dumpNames());
+    }
     auto names_and_types_list = header.getNamesAndTypesList();
     auto storage_factory = StorageMergeTreeFactory::instance();
-    auto metadata = buildMetaData(names_and_types_list, this->context);
-    auto t_metadata = watch.elapsedMicroseconds();
+    auto metadata = buildMetaData(names_and_types_list, context);
     query_context.metadata = metadata;
     auto storage = storage_factory.getStorage(
         StorageID(merge_tree_table.database, merge_tree_table.table),
@@ -262,9 +332,13 @@ QueryPlanPtr SerializedPlanParser::parseMergeTreeTable(const substrait::ReadRel 
             return custom_storage_merge_tree;
         });
     query_context.storage_snapshot = std::make_shared<StorageSnapshot>(*storage, metadata);
-    auto t_storage = watch.elapsedMicroseconds() - t_metadata;
     query_context.custom_storage_merge_tree = storage;
     auto query_info = buildQueryInfo(names_and_types_list);
+    std::vector<String> not_null_columns;
+    if (rel.has_filter())
+    {
+        query_info->prewhere_info = parsePreWhereInfo(rel.filter(), header, not_null_columns);
+    }
     auto data_parts = query_context.custom_storage_merge_tree->getDataPartsVector();
     int min_block = merge_tree_table.min_block;
     int max_block = merge_tree_table.max_block;
@@ -280,22 +354,67 @@ QueryPlanPtr SerializedPlanParser::parseMergeTreeTable(const substrait::ReadRel 
         throw Exception(ErrorCodes::NO_SUCH_DATA_PART, "part {} to {} not found.", min_block, max_block);
     }
     auto query = query_context.custom_storage_merge_tree->reader.readFromParts(
-        selected_parts, names_and_types_list.getNames(), query_context.storage_snapshot, *query_info, this->context, 4096 * 2, 1);
-    auto t_pipe = watch.elapsedMicroseconds() - t_storage;
-    watch.stop();
-    LOG_TRACE(
-        &Poco::Logger::get("SerializedPlanParser"),
-        "get metadata {} ms; get storage {} ms; get pipe {} ms",
-        t_metadata / 1000.0,
-        t_storage / 1000.0,
-        t_pipe / 1000.0);
+        selected_parts, names_and_types_list.getNames(), query_context.storage_snapshot, *query_info, context, 4096 * 2, 1);
+    if (!not_null_columns.empty())
+    {
+        auto input_header = query->getCurrentDataStream().header;
+        std::erase_if(not_null_columns, [input_header](auto item) -> bool {return !input_header.has(item);});
+        addRemoveNullableStep(*query, not_null_columns);
+    }
     return query;
+}
+
+PrewhereInfoPtr SerializedPlanParser::parsePreWhereInfo(const substrait::Expression & rel, Block & input, std::vector<String>& not_nullable_columns)
+{
+    auto prewhere_info = std::make_shared<PrewhereInfo>();
+    prewhere_info->prewhere_actions = std::make_shared<ActionsDAG>(input.getNamesAndTypesList());
+    std::string filter_name;
+    // for in function
+    if (rel.has_singular_or_list())
+    {
+        const auto *in_node = parseArgument(prewhere_info->prewhere_actions, rel);
+        prewhere_info->prewhere_actions->addOrReplaceInIndex(*in_node);
+        filter_name = in_node->result_name;
+    }
+    else
+    {
+        parseFunctionWithDAG(rel, filter_name, not_nullable_columns, prewhere_info->prewhere_actions, true);
+    }
+    prewhere_info->prewhere_column_name = filter_name;
+    prewhere_info->need_filter = true;
+    prewhere_info->remove_prewhere_column = true;
+    auto cols = prewhere_info->prewhere_actions->getRequiredColumnsNames();
+    if (last_project)
+    {
+        prewhere_info->prewhere_actions->removeUnusedActions(Names{filter_name}, true, true);
+        prewhere_info->prewhere_actions->projectInput(false);
+        for (const auto & expr : last_project->expressions())
+        {
+            if (expr.has_selection())
+            {
+                auto position = expr.selection().direct_reference().struct_field().field();
+                auto name = input.getByPosition(position).name;
+                prewhere_info->prewhere_actions->tryRestoreColumn(name);
+            }
+        }
+        auto output = prewhere_info->prewhere_actions->getIndex();
+    }
+    else
+    {
+        prewhere_info->prewhere_actions->removeUnusedActions(Names{filter_name}, false, true);
+        prewhere_info->prewhere_actions->projectInput(false);
+        for (const auto& name : input.getNames())
+        {
+            prewhere_info->prewhere_actions->tryRestoreColumn(name);
+        }
+    }
+    return prewhere_info;
 }
 
 Block SerializedPlanParser::parseNameStruct(const substrait::NamedStruct & struct_)
 {
-    auto internal_cols = std::make_unique<std::vector<ColumnWithTypeAndName>>();
-    internal_cols->reserve(struct_.names_size());
+    ColumnsWithTypeAndName internal_cols;
+    internal_cols.reserve(struct_.names_size());
     for (int i = 0; i < struct_.names_size(); ++i)
     {
         const auto & name = struct_.names(i);
@@ -309,83 +428,151 @@ Block SerializedPlanParser::parseNameStruct(const substrait::NamedStruct & struc
             auto tmp = AggregateFunctionFactory::instance().get(name_parts[3], {data_type}, {}, properties);
             data_type = tmp->getStateType();
         }
-        internal_cols->push_back(ColumnWithTypeAndName(data_type, name));
+        internal_cols.push_back(ColumnWithTypeAndName(data_type, name));
     }
-    return Block(*std::move(internal_cols));
+    Block res(std::move(internal_cols));
+    return std::move(res);
 }
 
-static DataTypePtr wrapNullableType(substrait::Type_Nullability nullable, DataTypePtr nested_type)
+DataTypePtr wrapNullableType(substrait::Type_Nullability nullable, DataTypePtr nested_type)
 {
-    if (nullable == substrait::Type_Nullability_NULLABILITY_NULLABLE)
-    {
+    return wrapNullableType(nullable == substrait::Type_Nullability_NULLABILITY_NULLABLE, nested_type);
+}
+
+DataTypePtr wrapNullableType(bool nullable, DataTypePtr nested_type)
+{
+    if (nullable)
         return std::make_shared<DataTypeNullable>(nested_type);
-    }
     else
-    {
         return nested_type;
-    }
 }
 
-DataTypePtr SerializedPlanParser::parseType(const substrait::Type & type)
+DataTypePtr SerializedPlanParser::parseType(const substrait::Type & substrait_type)
 {
-    DataTypePtr internal_type = nullptr;
-    auto & factory = DataTypeFactory::instance();
-    if (type.has_bool_())
+    DataTypePtr ch_type;
+    if (substrait_type.has_bool_())
     {
-        internal_type = factory.get("UInt8");
-        internal_type = wrapNullableType(type.bool_().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeUInt8>();
+        ch_type = wrapNullableType(substrait_type.bool_().nullability(), ch_type);
     }
-    else if (type.has_i8())
+    else if (substrait_type.has_i8())
     {
-        internal_type = factory.get("Int8");
-        internal_type = wrapNullableType(type.i8().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeInt8>();
+        ch_type = wrapNullableType(substrait_type.i8().nullability(), ch_type);
     }
-    else if (type.has_i16())
+    else if (substrait_type.has_i16())
     {
-        internal_type = factory.get("Int16");
-        internal_type = wrapNullableType(type.i16().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeInt16>();
+        ch_type = wrapNullableType(substrait_type.i16().nullability(), ch_type);
     }
-    else if (type.has_i32())
+    else if (substrait_type.has_i32())
     {
-        internal_type = factory.get("Int32");
-        internal_type = wrapNullableType(type.i32().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeInt32>();
+        ch_type = wrapNullableType(substrait_type.i32().nullability(), ch_type);
     }
-    else if (type.has_i64())
+    else if (substrait_type.has_i64())
     {
-        internal_type = factory.get("Int64");
-        internal_type = wrapNullableType(type.i64().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeInt64>();
+        ch_type = wrapNullableType(substrait_type.i64().nullability(), ch_type);
     }
-    else if (type.has_string())
+    else if (substrait_type.has_string())
     {
-        internal_type = factory.get("String");
-        internal_type = wrapNullableType(type.string().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeString>();
+        ch_type = wrapNullableType(substrait_type.string().nullability(), ch_type);
     }
-    else if (type.has_fp32())
+    else if (substrait_type.has_binary())
     {
-        internal_type = factory.get("Float32");
-        internal_type = wrapNullableType(type.fp32().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeString>();
+        ch_type = wrapNullableType(substrait_type.binary().nullability(), ch_type);
     }
-    else if (type.has_fp64())
+    else if (substrait_type.has_fp32())
     {
-        internal_type = factory.get("Float64");
-        internal_type = wrapNullableType(type.fp64().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeFloat32>();
+        ch_type = wrapNullableType(substrait_type.fp32().nullability(), ch_type);
     }
-    else if (type.has_date())
+    else if (substrait_type.has_fp64())
     {
-        internal_type = factory.get("Date32");
-        internal_type = wrapNullableType(type.date().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeFloat64>();
+        ch_type = wrapNullableType(substrait_type.fp64().nullability(), ch_type);
     }
-    else if (type.has_timestamp())
+    else if (substrait_type.has_timestamp())
     {
-        internal_type = factory.get("DateTime64(6)");
-        internal_type = wrapNullableType(type.timestamp().nullability(), internal_type);
+        ch_type = std::make_shared<DataTypeDateTime64>(6);
+        ch_type = wrapNullableType(substrait_type.timestamp().nullability(), ch_type);
+    }
+    else if (substrait_type.has_date())
+    {
+        ch_type = std::make_shared<DataTypeDate32>();
+        ch_type = wrapNullableType(substrait_type.date().nullability(), ch_type);
+    }
+    else if (substrait_type.has_decimal())
+    {
+        UInt32 precision = substrait_type.decimal().precision();
+        UInt32 scale = substrait_type.decimal().scale();
+        /*
+        if (precision <= DataTypeDecimal32::maxPrecision())
+            ch_type = std::make_shared<DataTypeDecimal32>(precision, scale);
+        else if (precision <= DataTypeDecimal64::maxPrecision())
+            ch_type = std::make_shared<DataTypeDecimal64>(precision, scale);
+        else if (precision <= DataTypeDecimal128::maxPrecision())
+            ch_type = std::make_shared<DataTypeDecimal128>(precision, scale);
+        else
+        */
+        if (precision > DataTypeDecimal128::maxPrecision())
+            throw Exception(ErrorCodes::UNKNOWN_TYPE, "Spark doesn't support decimal type with precision {}", precision);
+        ch_type = createDecimal<DataTypeDecimal>(precision, scale);
+        ch_type = wrapNullableType(substrait_type.decimal().nullability(), ch_type);
+    }
+    else if (substrait_type.has_struct_())
+    {
+        DataTypes ch_field_types(substrait_type.struct_().types().size());
+        for (size_t i = 0; i < ch_field_types.size(); ++i)
+            ch_field_types[i] = std::move(parseType(substrait_type.struct_().types()[i]));
+        ch_type = std::make_shared<DataTypeTuple>(ch_field_types);
+        ch_type = wrapNullableType(substrait_type.struct_().nullability(), ch_type);
+    }
+    else if (substrait_type.has_list())
+    {
+        auto ch_nested_type = parseType(substrait_type.list().type());
+        ch_type = std::make_shared<DataTypeArray>(ch_nested_type);
+        ch_type = wrapNullableType(substrait_type.list().nullability(), ch_type);
+    }
+    else if (substrait_type.has_map())
+    {
+        auto ch_key_type = parseType(substrait_type.map().key());
+        auto ch_val_type = parseType(substrait_type.map().value());
+        ch_type = std::make_shared<DataTypeMap>(ch_key_type, ch_val_type);
+        ch_type = wrapNullableType(substrait_type.map().nullability(), ch_type);
     }
     else
-    {
-        throw Exception(ErrorCodes::UNKNOWN_TYPE, "doesn't support type {}", type.DebugString());
-    }
-    return internal_type;
+        throw Exception(ErrorCodes::UNKNOWN_TYPE, "Spark doesn't support type {}", substrait_type.DebugString());
+
+    /// TODO(taiyang-li): consider Time/IntervalYear/IntervalDay/TimestampTZ/UUID/FixedChar/VarChar/FixedBinary/UserDefined
+    return std::move(ch_type);
 }
+
+DB::DataTypePtr SerializedPlanParser::parseType(const std::string & type)
+{
+    static std::map<std::string, std::string> type2type = {
+        {"BooleanType", "UInt8"},
+        {"ByteType", "Int8"},
+        {"ShortType", "Int16"},
+        {"IntegerType", "Int32"},
+        {"LongType", "Int64"},
+        {"FloatType", "Float32"},
+        {"DoubleType", "Float64"},
+        {"StringType", "String"},
+        {"DateType", "Date"}
+    };
+
+    auto it = type2type.find(type);
+    if (it == type2type.end())
+    {
+        throw DB::Exception(DB::ErrorCodes::UNKNOWN_TYPE, "Unknow spark type: {}", type);
+    }
+    return DB::DataTypeFactory::instance().get(it->second);
+}
+
 QueryPlanPtr SerializedPlanParser::parse(std::unique_ptr<substrait::Plan> plan)
 {
     auto * logger = &Poco::Logger::get("SerializedPlanParser");
@@ -397,17 +584,7 @@ QueryPlanPtr SerializedPlanParser::parse(std::unique_ptr<substrait::Plan> plan)
         pb_util::MessageToJsonString(*plan, &json, options);
         LOG_DEBUG(&Poco::Logger::get("SerializedPlanParser"), "substrait plan:{}", json);
     }
-    if (plan->extensions_size() > 0)
-    {
-        for (const auto & extension : plan->extensions())
-        {
-            if (extension.has_extension_function())
-            {
-                this->function_mapping.emplace(
-                    std::to_string(extension.extension_function().function_anchor()), extension.extension_function().name());
-            }
-        }
-    }
+    parseExtensions(plan->extensions());
     if (plan->relations_size() == 1)
     {
         auto root_rel = plan->relations().at(0);
@@ -417,27 +594,31 @@ QueryPlanPtr SerializedPlanParser::parse(std::unique_ptr<substrait::Plan> plan)
         }
 
         auto query_plan = parseOp(root_rel.root().input());
-        ActionsDAGPtr actions_dag = std::make_shared<ActionsDAG>(blockToNameAndTypeList(query_plan->getCurrentDataStream().header));
-        NamesWithAliases aliases;
-        auto cols = query_plan->getCurrentDataStream().header.getNamesAndTypesList();
-        for (int i = 0; i < root_rel.root().names_size(); i++)
+        if (root_rel.root().names_size())
         {
-            aliases.emplace_back(NameWithAlias(cols.getNames()[i], root_rel.root().names(i)));
+            ActionsDAGPtr actions_dag = std::make_shared<ActionsDAG>(blockToNameAndTypeList(query_plan->getCurrentDataStream().header));
+            NamesWithAliases aliases;
+            auto cols = query_plan->getCurrentDataStream().header.getNamesAndTypesList();
+            for (int i = 0; i < root_rel.root().names_size(); i++)
+            {
+                aliases.emplace_back(NameWithAlias(cols.getNames()[i], root_rel.root().names(i)));
+            }
+            actions_dag->project(aliases);
+            auto expression_step = std::make_unique<ExpressionStep>(query_plan->getCurrentDataStream(), actions_dag);
+            expression_step->setStepDescription("Rename Output");
+            query_plan->addStep(std::move(expression_step));
         }
-        actions_dag->project(aliases);
-        auto expression_step = std::make_unique<ExpressionStep>(query_plan->getCurrentDataStream(), actions_dag);
-        expression_step->setStepDescription("Rename Output");
-        query_plan->addStep(std::move(expression_step));
 
         if (logger->trace())
         {
             WriteBufferFromOwnString plan_string;
+            WriteBufferFromOwnString pipeline_string;
             QueryPlan::ExplainPlanOptions options;
             options.header = true;
             query_plan->explainPlan(plan_string, options);
             LOG_TRACE(
                 &Poco::Logger::get("SerializedPlanParser"),
-                "pipeline \n{}\n,pipeline output:\n{}",
+                "<ch plan>: \n{}\n<pipeline output>:\n{}\n",
                 plan_string.str(),
                 query_plan->getCurrentDataStream().header.dumpStructure());
         }
@@ -467,8 +648,8 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel)
             query_plan = parseOp(filter.input());
             std::string filter_name;
             std::vector<String> required_columns;
-            auto actions_dag
-                = parseFunction(query_plan->getCurrentDataStream(), filter.condition(), filter_name, required_columns, nullptr, true);
+            auto actions_dag = parseFunction(
+                query_plan->getCurrentDataStream().header, filter.condition(), filter_name, required_columns, nullptr, true);
             auto input = query_plan->getCurrentDataStream().header.getNames();
             Names input_with_condition(input);
             input_with_condition.emplace_back(filter_name);
@@ -477,85 +658,26 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel)
             query_plan->addStep(std::move(filter_step));
 
             // remove nullable
-            if (!required_columns.empty())
-            {
-                auto remove_nullable_actions_dag
-                    = std::make_shared<ActionsDAG>(blockToNameAndTypeList(query_plan->getCurrentDataStream().header));
-                removeNullable(required_columns, remove_nullable_actions_dag);
-                auto expression_step = std::make_unique<ExpressionStep>(query_plan->getCurrentDataStream(), remove_nullable_actions_dag);
-                expression_step->setStepDescription("Remove nullable properties");
-                query_plan->addStep(std::move(expression_step));
-            }
+            addRemoveNullableStep(*query_plan, required_columns);
             break;
         }
         case substrait::Rel::RelTypeCase::kProject: {
             const auto & project = rel.project();
+            last_project = &project;
             query_plan = parseOp(project.input());
-            const auto & expressions = project.expressions();
-            auto actions_dag = std::make_shared<ActionsDAG>(blockToNameAndTypeList(query_plan->getCurrentDataStream().header));
-            NamesWithAliases required_columns;
-            std::set<String> distinct_columns;
-
-            for (const auto & expr : expressions)
+            // for prewhere
+            bool is_mergetree_input = project.input().has_read() && !project.input().read().has_local_files();
+            Block read_schema;
+            if (is_mergetree_input)
             {
-                if (expr.has_selection())
-                {
-                    const auto * field = actions_dag->getInputs()[expr.selection().direct_reference().struct_field().field()];
-                    if (distinct_columns.contains(field->result_name))
-                    {
-                        auto unique_name = getUniqueName(field->result_name);
-                        required_columns.emplace_back(NameWithAlias(field->result_name, unique_name));
-                        distinct_columns.emplace(unique_name);
-                    }
-                    else
-                    {
-                        required_columns.emplace_back(NameWithAlias(field->result_name, field->result_name));
-                        distinct_columns.emplace(field->result_name);
-                    }
-                }
-                else if (expr.has_scalar_function())
-                {
-                    std::string name;
-                    std::vector<String> useless;
-                    actions_dag = parseFunction(query_plan->getCurrentDataStream(), expr, name, useless, actions_dag, true);
-                    if (!name.empty())
-                    {
-                        if (distinct_columns.contains(name))
-                        {
-                            auto unique_name = getUniqueName(name);
-                            required_columns.emplace_back(NameWithAlias(name, unique_name));
-                            distinct_columns.emplace(unique_name);
-                        }
-                        else
-                        {
-                            required_columns.emplace_back(NameWithAlias(name, name));
-                            distinct_columns.emplace(name);
-                        }
-                    }
-                }
-                else if (expr.has_cast() || expr.has_if_then() || expr.has_literal())
-                {
-                    const auto * node = parseArgument(actions_dag, expr);
-                    actions_dag->addOrReplaceInIndex(*node);
-                    if (distinct_columns.contains(node->result_name))
-                    {
-                        auto unique_name = getUniqueName(node->result_name);
-                        required_columns.emplace_back(NameWithAlias(node->result_name, unique_name));
-                        distinct_columns.emplace(unique_name);
-                    }
-                    else
-                    {
-                        required_columns.emplace_back(NameWithAlias(node->result_name, node->result_name));
-                        distinct_columns.emplace(node->result_name);
-                    }
-                }
-                else
-                {
-                    throw Exception(
-                        ErrorCodes::BAD_ARGUMENTS, "unsupported projection type {}.", magic_enum::enum_name(expr.rex_type_case()));
-                }
+                read_schema = parseNameStruct(project.input().read().base_schema());
             }
-            actions_dag->project(required_columns);
+            else
+            {
+                read_schema = query_plan->getCurrentDataStream().header;
+            }
+            const auto & expressions = project.expressions();
+            auto actions_dag = expressionsToActionsDAG(expressions, query_plan->getCurrentDataStream().header, read_schema);
             auto expression_step = std::make_unique<ExpressionStep>(query_plan->getCurrentDataStream(), actions_dag);
             expression_step->setStepDescription("Project");
             query_plan->addStep(std::move(expression_step));
@@ -583,22 +705,27 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel)
                 auto source = query_plan->getCurrentDataStream().header.getColumnsWithTypeAndName();
                 auto target = source;
 
+                bool need_convert = false;
                 for (size_t i = 0; i < measure_positions.size(); i++)
                 {
-                    if (!isTypeSame(measure_types[i], source[measure_positions[i]].type))
+                    if (!isTypeMatched(measure_types[i], source[measure_positions[i]].type))
                     {
                         auto target_type = parseType(measure_types[i]);
                         target[measure_positions[i]].type = target_type;
                         target[measure_positions[i]].column = target_type->createColumn();
+                        need_convert = true;
                     }
                 }
-                ActionsDAGPtr convert_action
-                    = ActionsDAG::makeConvertingActions(source, target, DB::ActionsDAG::MatchColumnsMode::Position);
-                if (convert_action)
-                {
-                    QueryPlanStepPtr convert_step = std::make_unique<ExpressionStep>(query_plan->getCurrentDataStream(), convert_action);
-                    convert_step->setStepDescription("Convert Aggregate Output");
-                    query_plan->addStep(std::move(convert_step));
+
+                if (need_convert) {
+                    ActionsDAGPtr convert_action
+                        = ActionsDAG::makeConvertingActions(source, target, DB::ActionsDAG::MatchColumnsMode::Position);
+                    if (convert_action)
+                    {
+                        QueryPlanStepPtr convert_step = std::make_unique<ExpressionStep>(query_plan->getCurrentDataStream(), convert_action);
+                        convert_step->setStepDescription("Convert Aggregate Output");
+                        query_plan->addStep(std::move(convert_step));
+                    }
                 }
             }
             break;
@@ -621,6 +748,7 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel)
             {
                 query_plan = parseMergeTreeTable(read);
             }
+            last_project = nullptr;
             break;
         }
         case substrait::Rel::RelTypeCase::kJoin: {
@@ -629,7 +757,9 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel)
             {
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "left table or right table is missing.");
             }
+            last_project = nullptr;
             auto left_plan = parseOp(join.left());
+            last_project = nullptr;
             auto right_plan = parseOp(join.right());
 
             query_plan = parseJoin(join, std::move(left_plan), std::move(right_plan));
@@ -641,7 +771,7 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel)
             break;
         }
         default:
-            throw Exception(ErrorCodes::UNKNOWN_TYPE, "doesn't support relation type");
+            throw Exception(ErrorCodes::UNKNOWN_TYPE, "doesn't support relation type: {}.\n{}", rel.rel_type_case(), rel.DebugString());
     }
     return query_plan;
 }
@@ -653,32 +783,30 @@ AggregateFunctionPtr getAggregateFunction(const std::string & name, DataTypes ar
     return factory.get(name, arg_types, Array{}, properties);
 }
 
-QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const substrait::AggregateRel & rel, bool & is_final)
+
+NamesAndTypesList SerializedPlanParser::blockToNameAndTypeList(const Block & header)
 {
-    std::set<substrait::AggregationPhase> phase_set;
-    for (int i = 0; i < rel.measures_size(); ++i)
+    NamesAndTypesList types;
+    for (const auto & name : header.getNames())
     {
-        const auto & measure = rel.measures(i);
-        phase_set.emplace(measure.measure().phase());
+        const auto * column = header.findByName(name);
+        types.push_back(NameAndTypePair(column->name, column->type));
     }
-    if (phase_set.size() > 1)
-    {
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "too many aggregate phase!");
-    }
-    bool final = true;
-    if (phase_set.contains(substrait::AggregationPhase::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE)
-        || phase_set.contains(substrait::AggregationPhase::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE))
-        final = false;
-    bool only_merge = phase_set.contains(substrait::AggregationPhase::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT);
+    return types;
+}
 
-    is_final = final;
-
+void SerializedPlanParser::addPreProjectStepIfNeeded(
+    QueryPlan & plan,
+    const substrait::AggregateRel & rel,
+    std::vector<std::string> & measure_names,
+    std::map<std::string, std::string> & nullable_measure_names)
+{
     auto input = plan.getCurrentDataStream();
     ActionsDAGPtr expression = std::make_shared<ActionsDAG>(blockToNameAndTypeList(input.header));
-    std::vector<std::string> measure_names;
     std::vector<String> required_columns;
-    std::vector<std::string> nullable_measure_names;
+    std::vector<std::string> to_wrap_nullable;
     String measure_name;
+    bool need_pre_project = false;
     for (const auto & measure : rel.measures())
     {
         auto which_measure_type = WhichDataType(parseType(measure.measure().output_type()));
@@ -688,12 +816,7 @@ QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const su
         }
         auto arg = measure.measure().arguments(0).value();
 
-        if (arg.has_scalar_function())
-        {
-            parseFunction(input, arg, measure_name, required_columns, expression, true);
-            measure_names.emplace_back(measure_name);
-        }
-        else if (arg.has_selection())
+        if (arg.has_selection())
         {
             measure_name = input.header.getByPosition(arg.selection().direct_reference().struct_field().field()).name;
             measure_names.emplace_back(measure_name);
@@ -704,23 +827,65 @@ QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const su
             expression->addOrReplaceInIndex(*node);
             measure_name = node->result_name;
             measure_names.emplace_back(measure_name);
+            need_pre_project = true;
         }
         else
         {
+            // this includes the arg.has_scalar_function() case
             throw Exception(ErrorCodes::UNKNOWN_TYPE, "unsupported aggregate argument type {}.", arg.DebugString());
         }
-        if (which_measure_type.isNullable())
+
+        if (which_measure_type.isNullable() &&
+            measure.measure().phase() == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE &&
+            !expression->findInIndex(measure_name).result_type->isNullable()
+            )
         {
-            nullable_measure_names.emplace_back(measure_name);
+            to_wrap_nullable.emplace_back(measure_name);
+            need_pre_project = true;
         }
     }
-    if (!final)
-    {
-        wrapNullable(nullable_measure_names, expression);
+    wrapNullable(to_wrap_nullable, expression, nullable_measure_names);
+
+    if (need_pre_project) {
+        auto expression_before_aggregate = std::make_unique<ExpressionStep>(input, expression);
+        expression_before_aggregate->setStepDescription("Before Aggregate");
+        plan.addStep(std::move(expression_before_aggregate));
     }
-    auto expression_before_aggregate = std::make_unique<ExpressionStep>(input, expression);
-    expression_before_aggregate->setStepDescription("Before Aggregate");
-    plan.addStep(std::move(expression_before_aggregate));
+}
+
+
+/**
+ * Gluten will use a pre projection step (search needsPreProjection in HashAggregateExecBaseTransformer)
+ * so this function can assume all group and agg args are direct references or literals
+ */
+QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const substrait::AggregateRel & rel, bool & is_final)
+{
+    std::set<substrait::AggregationPhase> phase_set;
+    for (int i = 0; i < rel.measures_size(); ++i)
+    {
+        const auto & measure = rel.measures(i);
+        phase_set.emplace(measure.measure().phase());
+    }
+
+    bool has_first_stage = phase_set.contains(substrait::AggregationPhase::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE);
+    bool has_inter_stage = phase_set.contains(substrait::AggregationPhase::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE);
+    bool has_final_stage = phase_set.contains(substrait::AggregationPhase::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT);
+
+    if (phase_set.size() > 1)
+    {
+        if (phase_set.size() == 2 && has_first_stage && has_inter_stage) {
+            // this will happen in a sql like:
+            // select sum(a), count(distinct b) from T
+        } else {
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "too many aggregate phase!");
+        }
+    }
+
+    is_final = has_final_stage;
+
+    std::vector<std::string> measure_names;
+    std::map<std::string, std::string> nullable_measure_names;
+    addPreProjectStepIfNeeded(plan, rel, measure_names, nullable_measure_names);
 
     ColumnNumbers keys = {};
     if (rel.groupings_size() == 1)
@@ -748,11 +913,11 @@ QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const su
     {
         const auto & measure = rel.measures(i);
         AggregateDescription agg;
-        auto function_signature = this->function_mapping.at(std::to_string(measure.measure().function_reference()));
+        auto function_signature = function_mapping.at(std::to_string(measure.measure().function_reference()));
         auto function_name_idx = function_signature.find(':');
         //        assert(function_name_idx != function_signature.npos && ("invalid function signature: " + function_signature).c_str());
         auto function_name = function_signature.substr(0, function_name_idx);
-        if (only_merge)
+        if (measure.measure().phase() != substrait::AggregationPhase::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE)
         {
             agg.column_name = measure_names.at(i);
         }
@@ -760,20 +925,29 @@ QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const su
         {
             agg.column_name = function_name + "(" + measure_names.at(i) + ")";
         }
-        agg.arguments = ColumnNumbers{plan.getCurrentDataStream().header.getPositionByName(measure_names.at(i))};
-        auto arg_type = plan.getCurrentDataStream().header.getByName(measure_names.at(i)).type;
+
+        // if measure arg has nullable version, use it
+        auto input_column = measure_names.at(i);
+        auto entry = nullable_measure_names.find(input_column);
+        if (entry != nullable_measure_names.end()) {
+            input_column = entry->second;
+        }
+        agg.arguments = ColumnNumbers{plan.getCurrentDataStream().header.getPositionByName(input_column)};
+        auto arg_type = plan.getCurrentDataStream().header.getByName(input_column).type;
         if (const auto * function_type = checkAndGetDataType<DataTypeAggregateFunction>(arg_type.get()))
         {
-            agg.function = getAggregateFunction(function_name + "Merge", {arg_type});
+            const auto * suffix = "PartialMerge";
+            agg.function = getAggregateFunction(function_name + suffix, {arg_type});
         }
         else
         {
             auto arg = arg_type;
-            if (only_merge)
+            if (measure.measure().phase() != substrait::AggregationPhase::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE)
             {
                 auto first = getAggregateFunction(function_name, {arg_type});
                 arg = first->getStateType();
-                function_name = function_name + "Merge";
+                const auto * suffix = "PartialMerge";
+                function_name = function_name + suffix;
             }
 
             agg.function = getAggregateFunction(function_name, {arg});
@@ -781,18 +955,18 @@ QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const su
         aggregates.push_back(agg);
     }
 
-    if (only_merge)
+    if (has_final_stage)
     {
         auto transform_params = std::make_shared<AggregatingTransformParams>(
-            this->getMergedAggregateParam(plan.getCurrentDataStream().header, keys, aggregates), final);
+            getMergedAggregateParam(plan.getCurrentDataStream().header, keys, aggregates), true);
         return std::make_unique<MergingAggregatedStep>(plan.getCurrentDataStream(), transform_params, false, 1, 1);
     }
     else
     {
         auto aggregating_step = std::make_unique<AggregatingStep>(
             plan.getCurrentDataStream(),
-            this->getAggregateParam(plan.getCurrentDataStream().header, keys, aggregates),
-            final,
+            getAggregateParam(plan.getCurrentDataStream().header, keys, aggregates),
+            false,
             1000000,
             1,
             1,
@@ -804,23 +978,14 @@ QueryPlanStepPtr SerializedPlanParser::parseAggregate(QueryPlan & plan, const su
     }
 }
 
-NamesAndTypesList SerializedPlanParser::blockToNameAndTypeList(const Block & header)
-{
-    NamesAndTypesList types;
-    for (const auto & name : header.getNames())
-    {
-        const auto * column = header.findByName(name);
-        types.push_back(NameAndTypePair(column->name, column->type));
-    }
-    return types;
-}
 
-std::string SerializedPlanParser::getFunctionName(const std::string & function_signature, const substrait::Expression_ScalarFunction & function)
+std::string
+SerializedPlanParser::getFunctionName(const std::string & function_signature, const substrait::Expression_ScalarFunction & function)
 {
     const auto & output_type = function.output_type();
     auto args = function.arguments();
-    auto function_name_idx = function_signature.find(':');
-    auto function_name = function_signature.substr(0, function_name_idx);
+    auto pos = function_signature.find(':');
+    auto function_name = function_signature.substr(0, pos);
     if (!SCALAR_FUNCTIONS.contains(function_name))
         throw Exception(ErrorCodes::UNKNOWN_FUNCTION, "Unsupported function {}", function_name);
 
@@ -841,21 +1006,19 @@ std::string SerializedPlanParser::getFunctionName(const std::string & function_s
         {
             const auto & field_value = extract_field.value().literal().string();
             if (field_value == "YEAR")
-            {
                 ch_function_name = "toYear";
-            }
+            else if (field_value == "QUARTER")
+                ch_function_name = "toQuarter";
             else if (field_value == "MONTH")
-            {
                 ch_function_name = "toMonth";
-            }
-            else if (field_value == "DAYOFWEEK")
-            {
+            else if (field_value == "WEEK_OF_YEAR")
+                ch_function_name = "toISOWeek";
+            else if (field_value == "DAY_OF_WEEK")
                 ch_function_name = "toDayOfWeek";
-            }
-            else if (field_value == "DAYOFYEAR")
-            {
+            else if (field_value == "DAY_OF_YEAR")
                 ch_function_name = "toDayOfYear";
-            }
+            else if (field_value == "SECOND")
+                ch_function_name = "toSecond";
             else
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "The first arg of extract function is wrong.");
         }
@@ -876,12 +1039,11 @@ const ActionsDAG::Node * SerializedPlanParser::parseFunctionWithDAG(
     bool keep_result)
 {
     if (!rel.has_scalar_function())
-    {
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "the root of expression should be a scalar function");
-    }
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "the root of expression should be a scalar function:\n {}", rel.DebugString());
+
     const auto & scalar_function = rel.scalar_function();
 
-    auto function_signature = this->function_mapping.at(std::to_string(rel.scalar_function().function_reference()));
+    auto function_signature = function_mapping.at(std::to_string(rel.scalar_function().function_reference()));
     auto function_name = getFunctionName(function_signature, scalar_function);
     ActionsDAG::NodeRawConstPtrs args;
     for (const auto & arg : scalar_function.arguments())
@@ -912,22 +1074,33 @@ const ActionsDAG::Node * SerializedPlanParser::parseFunctionWithDAG(
         {
             required_columns.emplace_back(args[0]->result_name);
         }
+        else if (function_name == "splitByRegexp")
+        {
+            if (args.size() >= 2)
+            {
+                /// In Spark: split(str, regex [, limit] )
+                /// In CH: splitByRegexp(regexp, s)
+                std::swap(args[0], args[1]);
+            }
+        }
+
         if (function_signature.find("extract:", 0) != function_signature.npos)
         {
             // delete the first arg
             args.erase(args.begin());
         }
-        auto function_builder = FunctionFactory::instance().get(function_name, this->context);
+
+        auto function_builder = FunctionFactory::instance().get(function_name, context);
         std::string args_name;
         join(args, ',', args_name);
         result_name = function_name + "(" + args_name + ")";
         const auto * function_node = &actions_dag->addFunction(function_builder, args, result_name);
         result_node = function_node;
-        if (!isTypeSame(rel.scalar_function().output_type(), function_node->result_type))
+        if (!isTypeMatched(rel.scalar_function().output_type(), function_node->result_type))
         {
             auto cast_function = getCastFunction(rel.scalar_function().output_type());
             DB::ActionsDAG::NodeRawConstPtrs cast_args({function_node});
-            auto cast = FunctionFactory::instance().get(cast_function, this->context);
+            auto cast = FunctionFactory::instance().get(cast_function, context);
             std::string cast_args_name;
             join(cast_args, ',', cast_args_name);
             result_name = cast_function + "(" + cast_args_name + ")";
@@ -941,7 +1114,7 @@ const ActionsDAG::Node * SerializedPlanParser::parseFunctionWithDAG(
 }
 
 ActionsDAGPtr SerializedPlanParser::parseFunction(
-    const DataStream & input,
+    const Block & input,
     const substrait::Expression & rel,
     std::string & result_name,
     std::vector<String> & required_columns,
@@ -949,9 +1122,8 @@ ActionsDAGPtr SerializedPlanParser::parseFunction(
     bool keep_result)
 {
     if (!actions_dag)
-    {
-        actions_dag = std::make_shared<ActionsDAG>(blockToNameAndTypeList(input.header));
-    }
+        actions_dag = std::make_shared<ActionsDAG>(blockToNameAndTypeList(input));
+
     parseFunctionWithDAG(rel, result_name, required_columns, actions_dag, keep_result);
     return actions_dag;
 }
@@ -959,7 +1131,7 @@ ActionsDAGPtr SerializedPlanParser::parseFunction(
 const ActionsDAG::Node *
 SerializedPlanParser::toFunctionNode(ActionsDAGPtr action_dag, const String & function, const DB::ActionsDAG::NodeRawConstPtrs & args)
 {
-    auto function_builder = DB::FunctionFactory::instance().get(function, this->context);
+    auto function_builder = DB::FunctionFactory::instance().get(function, context);
     std::string args_name;
     join(args, ',', args_name);
     auto result_name = function + "(" + args_name + ")";
@@ -967,242 +1139,159 @@ SerializedPlanParser::toFunctionNode(ActionsDAGPtr action_dag, const String & fu
     return function_node;
 }
 
+std::pair<DataTypePtr, Field> SerializedPlanParser::parseLiteral(const substrait::Expression_Literal & literal)
+{
+    DataTypePtr type;
+    Field field;
+
+    switch (literal.literal_type_case())
+    {
+        case substrait::Expression_Literal::kFp64: {
+            type = std::make_shared<DataTypeFloat64>();
+            field = literal.fp64();
+            break;
+        }
+        case substrait::Expression_Literal::kFp32: {
+            type = std::make_shared<DataTypeFloat32>();
+            field = literal.fp32();
+            break;
+        }
+        case substrait::Expression_Literal::kString: {
+            type = std::make_shared<DataTypeString>();
+            field = literal.string();
+            break;
+        }
+        case substrait::Expression_Literal::kBinary: {
+            type = std::make_shared<DataTypeString>();
+            field = literal.binary();
+            break;
+        }
+        case substrait::Expression_Literal::kI64: {
+            type = std::make_shared<DataTypeInt64>();
+            field = literal.i64();
+            break;
+        }
+        case substrait::Expression_Literal::kI32: {
+            type = std::make_shared<DataTypeInt32>();
+            field = literal.i32();
+            break;
+        }
+        case substrait::Expression_Literal::kBoolean: {
+            type = std::make_shared<DataTypeUInt8>();
+            field = literal.boolean() ? UInt8(1) : UInt8(0);
+            break;
+        }
+        case substrait::Expression_Literal::kI16: {
+            type = std::make_shared<DataTypeInt16>();
+            field = literal.i16();
+            break;
+        }
+        case substrait::Expression_Literal::kI8: {
+            type = std::make_shared<DataTypeInt8>();
+            field = literal.i8();
+            break;
+        }
+        case substrait::Expression_Literal::kDate: {
+            type = std::make_shared<DataTypeDate32>();
+            field = literal.date();
+            break;
+        }
+        case substrait::Expression_Literal::kTimestamp: {
+            type = std::make_shared<DataTypeDateTime64>(6);
+            field = DecimalField<DateTime64>(literal.timestamp(), 6);
+            break;
+        }
+        case substrait::Expression_Literal::kDecimal: {
+            UInt32 precision = literal.decimal().precision();
+            UInt32 scale = literal.decimal().scale();
+            const auto & bytes = literal.decimal().value();
+
+            if (precision <= DataTypeDecimal32::maxPrecision())
+            {
+                type = std::make_shared<DataTypeDecimal32>(precision, scale);
+                auto value = *reinterpret_cast<const Int32 *>(bytes.data());
+                field = DecimalField<Decimal32>(value, scale);
+            }
+            else if (precision <= DataTypeDecimal64::maxPrecision())
+            {
+                type = std::make_shared<DataTypeDecimal64>(precision, scale);
+                auto value = *reinterpret_cast<const Int64 *>(bytes.data());
+                field = DecimalField<Decimal64>(value, scale);
+            }
+            else if (precision <= DataTypeDecimal128::maxPrecision())
+            {
+                type = std::make_shared<DataTypeDecimal128>(precision, scale);
+                auto value = BackingDataLengthCalculator::getDecimal128FromBytes(bytes);
+                field = DecimalField<Decimal128>(value, scale);
+            }
+            else
+                throw Exception(ErrorCodes::UNKNOWN_TYPE, "Spark doesn't support decimal type with precision {}", precision);
+            break;
+        }
+        /// TODO(taiyang-li) Other type: Struct/Map/List
+        case substrait::Expression_Literal::kList: {
+            /// TODO(taiyang-li) Implement empty list
+            if (literal.has_empty_list())
+                throw Exception(ErrorCodes::BAD_ARGUMENTS, "Empty list not support!");
+
+            DataTypePtr first_type;
+            std::tie(first_type, std::ignore) = parseLiteral(literal.list().values(0));
+
+            size_t list_len = literal.list().values_size();
+            Array array(list_len);
+            for (size_t i = 0; i < list_len; ++i)
+            {
+                auto type_and_field = std::move(parseLiteral(literal.list().values(i)));
+                if (!first_type->equals(*type_and_field.first))
+                    throw Exception(
+                        ErrorCodes::LOGICAL_ERROR,
+                        "Literal list type mismatch:{} and {}",
+                        first_type->getName(),
+                        type_and_field.first->getName());
+                array[i] = std::move(type_and_field.second);
+            }
+
+            type = std::make_shared<DataTypeArray>(first_type);
+            field = std::move(array);
+            break;
+        }
+        case substrait::Expression_Literal::kNull: {
+            type = parseType(literal.null());
+            field = std::move(Field{});
+            break;
+        }
+        default: {
+            throw Exception(
+                ErrorCodes::UNKNOWN_TYPE, "Unsupported spark literal type {}", magic_enum::enum_name(literal.literal_type_case()));
+        }
+    }
+    return std::make_pair(std::move(type), std::move(field));
+}
+
 const ActionsDAG::Node * SerializedPlanParser::parseArgument(ActionsDAGPtr action_dag, const substrait::Expression & rel)
 {
+    auto add_column = [&](const DataTypePtr & type, const Field & field) -> auto
+    {
+        return &action_dag->addColumn(ColumnWithTypeAndName(type->createColumnConst(1, field), type, getUniqueName(toString(field))));
+    };
+
     switch (rel.rex_type_case())
     {
         case substrait::Expression::RexTypeCase::kLiteral: {
-            const auto & literal = rel.literal();
-            switch (literal.literal_type_case())
-            {
-                case substrait::Expression_Literal::kFp64: {
-                    auto type = std::make_shared<DataTypeFloat64>();
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, literal.fp64()), type, getUniqueName(std::to_string(literal.fp64()))));
-                }
-                case substrait::Expression_Literal::kFp32: {
-                    auto type = std::make_shared<DataTypeFloat32>();
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, literal.fp32()), type, getUniqueName(std::to_string(literal.fp32()))));
-                }
-                case substrait::Expression_Literal::kString: {
-                    auto type = std::make_shared<DataTypeString>();
-                    return &action_dag->addColumn(
-                        ColumnWithTypeAndName(type->createColumnConst(1, literal.string()), type, getUniqueName(literal.string())));
-                }
-                case substrait::Expression_Literal::kI64: {
-                    auto type = std::make_shared<DataTypeInt64>();
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, literal.i64()), type, getUniqueName(std::to_string(literal.i64()))));
-                }
-                case substrait::Expression_Literal::kI32: {
-                    auto type = std::make_shared<DataTypeInt32>();
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, literal.i32()), type, getUniqueName(std::to_string(literal.i32()))));
-                }
-                case substrait::Expression_Literal::kBoolean: {
-                    auto type = std::make_shared<DataTypeUInt8>();
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, literal.boolean() ? 1 : 0), type, getUniqueName(std::to_string(literal.boolean()))));
-                }
-                case substrait::Expression_Literal::kI16: {
-                    auto type = std::make_shared<DataTypeInt16>();
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, literal.i16()), type, getUniqueName(std::to_string(literal.i16()))));
-                }
-                case substrait::Expression_Literal::kI8: {
-                    auto type = std::make_shared<DataTypeInt8>();
-                    return &action_dag->addColumn(
-                        ColumnWithTypeAndName(type->createColumnConst(1, literal.i8()), type, getUniqueName(std::to_string(literal.i8()))));
-                }
-                case substrait::Expression_Literal::kDate: {
-                    auto type = std::make_shared<DataTypeDate32>();
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, literal.date()), type, getUniqueName(std::to_string(literal.date()))));
-                }
-                case substrait::Expression_Literal::kTimestamp: {
-                    auto type = std::make_shared<DataTypeDateTime64>(6);
-                    auto field = DecimalField<DateTime64>(literal.timestamp(), 6);
-                    return &action_dag->addColumn(ColumnWithTypeAndName(
-                        type->createColumnConst(1, field), type, getUniqueName(std::to_string(literal.timestamp()))));
-                }
-                case substrait::Expression_Literal::kList: {
-                    SizeLimits limit;
-                    if (literal.has_empty_list())
-                    {
-                        throw Exception(ErrorCodes::BAD_ARGUMENTS, "empty list not support!");
-                    }
-                    MutableColumnPtr values;
-                    DataTypePtr type;
-                    auto first_value = literal.list().values(0);
-                    if (first_value.has_boolean())
-                    {
-                        type = std::make_shared<DataTypeUInt8>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).boolean() ? 1 : 0);
-                        }
-                    }
-                    else if (first_value.has_i8())
-                    {
-                        type = std::make_shared<DataTypeInt8>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).i8());
-                        }
-                    }
-                    else if (first_value.has_i16())
-                    {
-                        type = std::make_shared<DataTypeInt16>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).i16());
-                        }
-                    }
-                    else if (first_value.has_i32())
-                    {
-                        type = std::make_shared<DataTypeInt32>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).i32());
-                        }
-                    }
-                    else if (first_value.has_i64())
-                    {
-                        type = std::make_shared<DataTypeInt64>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).i64());
-                        }
-                    }
-                    else if (first_value.has_fp32())
-                    {
-                        type = std::make_shared<DataTypeFloat32>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).fp32());
-                        }
-                    }
-                    else if (first_value.has_fp64())
-                    {
-                        type = std::make_shared<DataTypeFloat64>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).fp64());
-                        }
-                    }
-                    else if (first_value.has_date())
-                    {
-                        type = std::make_shared<DataTypeDate32>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).date());
-                        }
-                    }
-                    else if (first_value.has_timestamp())
-                    {
-                        type = std::make_shared<DataTypeDateTime64>(6);
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            auto field = DecimalField<DateTime64>(literal.list().values(i).timestamp(), 6);
-                            values->insert(literal.list().values(i).timestamp());
-                        }
-                    }
-                    else if (first_value.has_string())
-                    {
-                        type = std::make_shared<DataTypeString>();
-                        values = type->createColumn();
-                        for (int i = 0; i < literal.list().values_size(); ++i)
-                        {
-                            values->insert(literal.list().values(i).string());
-                        }
-                    }
-                    else
-                    {
-                        throw Exception(
-                            ErrorCodes::UNKNOWN_TYPE,
-                            "unsupported literal list type. {}",
-                            magic_enum::enum_name(first_value.literal_type_case()));
-                    }
-                    auto set = std::make_shared<Set>(limit, true, false);
-                    Block values_block;
-                    auto name = getUniqueName("__set");
-                    values_block.insert(ColumnWithTypeAndName(std::move(values), type, name));
-                    set->setHeader(values_block.getColumnsWithTypeAndName());
-                    set->insertFromBlock(values_block.getColumnsWithTypeAndName());
-                    set->finishInsert();
-
-                    auto arg = ColumnSet::create(set->getTotalRowCount(), set);
-                    return &action_dag->addColumn(ColumnWithTypeAndName(std::move(arg), std::make_shared<DataTypeSet>(), name));
-                }
-                case substrait::Expression_Literal::kNull: {
-                    DataTypePtr nested_type;
-                    if (literal.null().has_i8())
-                    {
-                        nested_type = std::make_shared<DataTypeInt8>();
-                    }
-                    else if (literal.null().has_i16())
-                    {
-                        nested_type = std::make_shared<DataTypeInt16>();
-                    }
-                    else if (literal.null().has_i32())
-                    {
-                        nested_type = std::make_shared<DataTypeInt32>();
-                    }
-                    else if (literal.null().has_i64())
-                    {
-                        nested_type = std::make_shared<DataTypeInt64>();
-                    }
-                    else if (literal.null().has_bool_())
-                    {
-                        nested_type = std::make_shared<DataTypeUInt8>();
-                    }
-                    else if (literal.null().has_fp32())
-                    {
-                        nested_type = std::make_shared<DataTypeFloat32>();
-                    }
-                    else if (literal.null().has_fp64())
-                    {
-                        nested_type = std::make_shared<DataTypeFloat64>();
-                    }
-                    else if (literal.null().has_date())
-                    {
-                        nested_type = std::make_shared<DataTypeDate32>();
-                    }
-                    else if (literal.null().has_timestamp())
-                    {
-                        nested_type = std::make_shared<DataTypeDateTime64>(6);
-                    }
-                    else if (literal.null().has_string())
-                    {
-                        nested_type = std::make_shared<DataTypeString>();
-                    }
-                    auto type = std::make_shared<DataTypeNullable>(nested_type);
-                    return &action_dag->addColumn(ColumnWithTypeAndName(type->createColumnConst(1, Field()), type, getUniqueName("null")));
-                }
-                default: {
-                    throw Exception(
-                        ErrorCodes::UNKNOWN_TYPE, "unsupported constant type {}", magic_enum::enum_name(literal.literal_type_case()));
-                }
-            }
+            DataTypePtr type;
+            Field field;
+            std::tie(type, field) = parseLiteral(rel.literal());
+            return add_column(type, field);
         }
+
         case substrait::Expression::RexTypeCase::kSelection: {
             if (!rel.selection().has_direct_reference() || !rel.selection().direct_reference().has_struct_field())
-            {
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "Can only have direct struct references in selections");
-            }
+
             const auto * field = action_dag->getInputs()[rel.selection().direct_reference().struct_field().field()];
             return action_dag->tryFindInIndex(field->result_name);
         }
+
         case substrait::Expression::RexTypeCase::kCast: {
             if (!rel.cast().has_type() || !rel.cast().has_input())
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "Doesn't have type or input in cast node.");
@@ -1233,27 +1322,19 @@ const ActionsDAG::Node * SerializedPlanParser::parseArgument(ActionsDAGPtr actio
             action_dag->addOrReplaceInIndex(*function_node);
             return function_node;
         }
+
         case substrait::Expression::RexTypeCase::kIfThen: {
             const auto & if_then = rel.if_then();
-            auto function_multi_if = DB::FunctionFactory::instance().get("multiIf", this->context);
+            auto function_multi_if = DB::FunctionFactory::instance().get("multiIf", context);
             DB::ActionsDAG::NodeRawConstPtrs args;
 
             auto condition_nums = if_then.ifs_size();
             for (int i = 0; i < condition_nums; ++i)
             {
                 const auto & ifs = if_then.ifs(i);
-                std::string if_name;
-                std::string then_name;
-                std::vector<String> useless;
-                parseFunctionWithDAG(ifs.if_(), if_name, useless, action_dag, false);
-                for (const auto & node : action_dag->getNodes())
-                {
-                    if (node.result_name == if_name)
-                    {
-                        args.emplace_back(&node);
-                        break;
-                    }
-                }
+                const auto * if_node = parseArgument(action_dag, ifs.if_());
+                args.emplace_back(if_node);
+
                 const auto * then_node = parseArgument(action_dag, ifs.then());
                 args.emplace_back(then_node);
             }
@@ -1267,119 +1348,104 @@ const ActionsDAG::Node * SerializedPlanParser::parseArgument(ActionsDAGPtr actio
             action_dag->addOrReplaceInIndex(*function_node);
             return function_node;
         }
+
         case substrait::Expression::RexTypeCase::kScalarFunction: {
             std::string result;
             std::vector<String> useless;
             return parseFunctionWithDAG(rel, result, useless, action_dag, false);
         }
+
         case substrait::Expression::RexTypeCase::kSingularOrList: {
             DB::ActionsDAG::NodeRawConstPtrs args;
             args.emplace_back(parseArgument(action_dag, rel.singular_or_list().value()));
+
+            /// options should be non-empty and literals
             const auto & options = rel.singular_or_list().options();
+            if (options.empty())
+                throw Exception(ErrorCodes::LOGICAL_ERROR, "Empty SingularOrList not supported");
+            if (!options[0].has_literal())
+                throw Exception(ErrorCodes::LOGICAL_ERROR, "Options of SingularOrList must have literal type");
+
+            DataTypePtr elem_type;
+            std::tie(elem_type, std::ignore) = parseLiteral(options[0].literal());
+
+            size_t options_len = options.size();
+            MutableColumnPtr elem_column = elem_type->createColumn();
+            elem_column->reserve(options_len);
+            for (size_t i = 0; i < options_len; ++i)
+            {
+                if (!options[i].has_literal())
+                    throw Exception(ErrorCodes::BAD_ARGUMENTS, "in expression values must be the literal!");
+
+                auto type_and_field = std::move(parseLiteral(options[i].literal()));
+                if (!elem_type->equals(*type_and_field.first))
+                    throw Exception(
+                        ErrorCodes::LOGICAL_ERROR,
+                        "SingularOrList options type mismatch:{} and {}",
+                        elem_type->getName(),
+                        type_and_field.first->getName());
+
+                elem_column->insert(type_and_field.second);
+            }
+
+            MutableColumns elem_columns;
+            elem_columns.emplace_back(std::move(elem_column));
+
+            auto name = getUniqueName("__set");
+            Block elem_block;
+            elem_block.insert(ColumnWithTypeAndName(nullptr, elem_type, name));
+            elem_block.setColumns(std::move(elem_columns));
 
             SizeLimits limit;
-            if (options.empty())
-            {
-                throw Exception(ErrorCodes::BAD_ARGUMENTS, "empty list not support!");
-            }
-            ColumnPtr values;
-            DataTypePtr type;
-            if (!options[0].has_literal())
-            {
-                throw Exception(ErrorCodes::BAD_ARGUMENTS, "in expression values must be the literal!");
-            }
-            auto first_value = options[0].literal();
-            using FieldGetter = std::function<Field (substrait::Expression_Literal)>;
-            auto fill_values = [options](DataTypePtr type, FieldGetter getter) -> ColumnPtr {
-                auto values = type->createColumn();
-                for (const auto & v : options)
-                {
-                    values->insert(getter(v.literal()));
-                }
-                return values;
-            };
-            if (first_value.has_boolean())
-            {
-                type = std::make_shared<DataTypeUInt8>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.boolean() ? 1 : 0;});
-            }
-            else if (first_value.has_i8())
-            {
-                type = std::make_shared<DataTypeInt8>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.i8();});
-            }
-            else if (first_value.has_i16())
-            {
-                type = std::make_shared<DataTypeInt16>();
-                values = type->createColumn();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.i16();});
-            }
-            else if (first_value.has_i32())
-            {
-                type = std::make_shared<DataTypeInt32>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.i32();});
-            }
-            else if (first_value.has_i64())
-            {
-                type = std::make_shared<DataTypeInt64>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.i64();});
-            }
-            else if (first_value.has_fp32())
-            {
-                type = std::make_shared<DataTypeFloat32>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.fp32();});
-            }
-            else if (first_value.has_fp64())
-            {
-                type = std::make_shared<DataTypeFloat64>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.fp64();});
-            }
-            else if (first_value.has_date())
-            {
-                type = std::make_shared<DataTypeDate32>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.date();});
-            }
-            else if (first_value.has_string())
-            {
-                type = std::make_shared<DataTypeString>();
-                values = fill_values(type, [](substrait::Expression_Literal expr) -> Field {return expr.string();});
-            }
-            else
-            {
-                throw Exception(
-                    ErrorCodes::UNKNOWN_TYPE,
-                    "unsupported literal list type. {}",
-                    magic_enum::enum_name(first_value.literal_type_case()));
-            }
-            auto set = std::make_shared<Set>(limit, true, false);
-            Block values_block;
-            auto name = getUniqueName("__set");
-            values_block.insert(ColumnWithTypeAndName(values, type, name));
-            set->setHeader(values_block.getColumnsWithTypeAndName());
-            set->insertFromBlock(values_block.getColumnsWithTypeAndName());
-            set->finishInsert();
+            auto elem_set = std::make_shared<Set>(limit, true, false);
+            elem_set->setHeader(elem_block.getColumnsWithTypeAndName());
+            elem_set->insertFromBlock(elem_block.getColumnsWithTypeAndName());
+            elem_set->finishInsert();
 
-            auto arg = ColumnSet::create(set->getTotalRowCount(), set);
+            auto arg = ColumnSet::create(elem_set->getTotalRowCount(), elem_set);
             args.emplace_back(&action_dag->addColumn(ColumnWithTypeAndName(std::move(arg), std::make_shared<DataTypeSet>(), name)));
 
             const auto * function_node = toFunctionNode(action_dag, "in", args);
             action_dag->addOrReplaceInIndex(*function_node);
             return function_node;
         }
-        default: {
+
+        default:
             throw Exception(
-                ErrorCodes::BAD_ARGUMENTS, "unsupported arg type {} : {}", magic_enum::enum_name(rel.rex_type_case()), rel.DebugString());
-        }
+                ErrorCodes::UNKNOWN_TYPE,
+                "Unsupported spark expression type {} : {}",
+                magic_enum::enum_name(rel.rex_type_case()),
+                rel.DebugString());
     }
 }
 
 QueryPlanPtr SerializedPlanParser::parse(const std::string & plan)
 {
     auto plan_ptr = std::make_unique<substrait::Plan>();
-    plan_ptr->ParseFromString(plan);
-    LOG_DEBUG(&Poco::Logger::get("SerializedPlanParser"), "parse plan \n{}", plan_ptr->DebugString());
+    auto ok = plan_ptr->ParseFromString(plan);
+    if (!ok)
+        throw Exception(ErrorCodes::CANNOT_PARSE_PROTOBUF_SCHEMA, "Parse substrait::Plan from string failed");
+
+    auto res = std::move(parse(std::move(plan_ptr)));
+
+    auto * logger = &Poco::Logger::get("SerializedPlanParser");
+    if (logger->debug())
+    {
+        auto out = PlanUtil::explainPlan(*res);
+        LOG_DEBUG(logger, "clickhouse plan:{}", out);
+    }
+    return std::move(res);
+}
+
+QueryPlanPtr SerializedPlanParser::parseJson(const std::string & json_plan)
+{
+    auto plan_ptr = std::make_unique<substrait::Plan>();
+    google::protobuf::util::JsonStringToMessage(
+        google::protobuf::stringpiece_internal::StringPiece(json_plan.c_str()),
+        plan_ptr.get());
     return parse(std::move(plan_ptr));
 }
+
 void SerializedPlanParser::initFunctionEnv()
 {
     registerFunctions();
@@ -1396,7 +1462,7 @@ void SerializedPlanParser::collectJoinKeys(
     const substrait::Expression & condition, std::vector<std::pair<int32_t, int32_t>> & join_keys, int32_t right_key_start)
 {
     auto condition_name = getFunctionName(
-        this->function_mapping.at(std::to_string(condition.scalar_function().function_reference())), condition.scalar_function());
+        function_mapping.at(std::to_string(condition.scalar_function().function_reference())), condition.scalar_function());
     if (condition_name == "and")
     {
         collectJoinKeys(condition.scalar_function().arguments(0).value(), join_keys, right_key_start);
@@ -1417,7 +1483,9 @@ void SerializedPlanParser::collectJoinKeys(
 
 DB::QueryPlanPtr SerializedPlanParser::parseJoin(substrait::JoinRel join, DB::QueryPlanPtr left, DB::QueryPlanPtr right)
 {
-    auto join_opt_info = parseJoinOptimizationInfo(join.advanced_extension().optimization().value());
+    google::protobuf::StringValue optimization;
+    optimization.ParseFromString(join.advanced_extension().optimization().value());
+    auto join_opt_info = parseJoinOptimizationInfo(optimization.value());
     auto table_join = std::make_shared<TableJoin>(global_context->getSettings(), global_context->getTemporaryVolume());
     if (join.type() == substrait::JoinRel_JoinType_JOIN_TYPE_INNER)
     {
@@ -1561,7 +1629,8 @@ DB::QueryPlanPtr SerializedPlanParser::parseJoin(substrait::JoinRel join, DB::Qu
     {
         std::string filter_name;
         std::vector<String> useless;
-        auto actions_dag = parseFunction(query_plan->getCurrentDataStream(), join.post_join_filter(), filter_name, useless, nullptr, true);
+        auto actions_dag
+            = parseFunction(query_plan->getCurrentDataStream().header, join.post_join_filter(), filter_name, useless, nullptr, true);
         auto filter_step = std::make_unique<FilterStep>(query_plan->getCurrentDataStream(), actions_dag, filter_name, true);
         filter_step->setStepDescription("Post Join Filter");
         query_plan->addStep(std::move(filter_step));
@@ -1585,7 +1654,7 @@ void SerializedPlanParser::removeNullable(std::vector<String> require_columns, A
 {
     for (const auto & item : require_columns)
     {
-        auto function_builder = FunctionFactory::instance().get("assumeNotNull", this->context);
+        auto function_builder = FunctionFactory::instance().get("assumeNotNull", context);
         ActionsDAG::NodeRawConstPtrs args;
         args.emplace_back(&actionsDag->findInIndex(item));
         const auto & node = actionsDag->addFunction(function_builder, args, item);
@@ -1593,15 +1662,16 @@ void SerializedPlanParser::removeNullable(std::vector<String> require_columns, A
     }
 }
 
-void SerializedPlanParser::wrapNullable(std::vector<String> columns, ActionsDAGPtr actionsDag)
+void SerializedPlanParser::wrapNullable(std::vector<String> columns, ActionsDAGPtr actionsDag,
+                                        std::map<std::string, std::string>& nullable_measure_names)
 {
     for (const auto & item : columns)
     {
-        auto function_builder = FunctionFactory::instance().get("toNullable", this->context);
         ActionsDAG::NodeRawConstPtrs args;
         args.emplace_back(&actionsDag->findInIndex(item));
-        const auto & node = actionsDag->addFunction(function_builder, args, item);
-        actionsDag->addOrReplaceInIndex(node);
+        const auto * node = toFunctionNode(actionsDag, "toNullable", args);
+        actionsDag->addOrReplaceInIndex(*node);
+        nullable_measure_names[item] = node->result_name;
     }
 }
 
@@ -1610,7 +1680,8 @@ DB::QueryPlanPtr SerializedPlanParser::parseSort(const substrait::SortRel & sort
     auto query_plan = parseOp(sort_rel.input());
     auto sort_descr = parseSortDescription(sort_rel);
     const auto & settings = context->getSettingsRef();
-    auto sorting_step = std::make_unique<DB::SortingStep>(query_plan->getCurrentDataStream(),
+    auto sorting_step = std::make_unique<DB::SortingStep>(
+        query_plan->getCurrentDataStream(),
         sort_descr,
         settings.max_block_size,
         0, // no limit now
@@ -1627,21 +1698,15 @@ DB::QueryPlanPtr SerializedPlanParser::parseSort(const substrait::SortRel & sort
 
 DB::SortDescription SerializedPlanParser::parseSortDescription(const substrait::SortRel & sort_rel)
 {
-    static std::map<int, std::pair<int, int>> direction_map = {
-        {1, {1, -1}},
-        {2, {1, 1}},
-        {3, {-1, 1}},
-        {4, {-1, -1}}
-    };
+    static std::map<int, std::pair<int, int>> direction_map = {{1, {1, -1}}, {2, {1, 1}}, {3, {-1, 1}}, {4, {-1, -1}}};
 
     DB::SortDescription sort_descr;
     for (int i = 0, sz = sort_rel.sorts_size(); i < sz; ++i)
     {
         const auto & sort_field = sort_rel.sorts(i);
 
-        if (!sort_field.expr().has_selection() ||
-            !sort_field.expr().selection().has_direct_reference() ||
-            !sort_field.expr().selection().direct_reference().has_struct_field())
+        if (!sort_field.expr().has_selection() || !sort_field.expr().selection().has_direct_reference()
+            || !sort_field.expr().selection().direct_reference().has_struct_field())
         {
             throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "Unsupport sort field");
         }
@@ -1659,19 +1724,30 @@ DB::SortDescription SerializedPlanParser::parseSortDescription(const substrait::
 }
 SharedContextHolder SerializedPlanParser::shared_context;
 
+LocalExecutor::~LocalExecutor()
+{
+    if (spark_buffer)
+    {
+        ch_column_to_spark_row->freeMem(spark_buffer->address, spark_buffer->size);
+        spark_buffer.reset();
+    }
+}
+
+
 void LocalExecutor::execute(QueryPlanPtr query_plan)
 {
+    current_query_plan = std::move(query_plan);
     Stopwatch stopwatch;
     stopwatch.start();
     QueryPlanOptimizationSettings optimization_settings{.optimize_plan = true};
-    auto pipeline_builder = query_plan->buildQueryPipeline(
+    auto pipeline_builder = current_query_plan->buildQueryPipeline(
         optimization_settings,
         BuildQueryPipelineSettings{
             .actions_settings = ExpressionActionsSettings{
                 .can_compile_expressions = true, .min_count_to_compile_expression = 3, .compile_expressions = CompileExpressions::yes}});
-    this->query_pipeline = QueryPipelineBuilder::getPipeline(std::move(*pipeline_builder));
+    query_pipeline = QueryPipelineBuilder::getPipeline(std::move(*pipeline_builder));
     auto t_pipeline = stopwatch.elapsedMicroseconds();
-    this->executor = std::make_unique<PullingPipelineExecutor>(query_pipeline);
+    executor = std::make_unique<PullingPipelineExecutor>(query_pipeline);
     auto t_executor = stopwatch.elapsedMicroseconds() - t_pipeline;
     stopwatch.stop();
     LOG_INFO(
@@ -1679,26 +1755,36 @@ void LocalExecutor::execute(QueryPlanPtr query_plan)
         "build pipeline {} ms; create executor {} ms;",
         t_pipeline / 1000.0,
         t_executor / 1000.0);
-    this->header = query_plan->getCurrentDataStream().header.cloneEmpty();
-    this->ch_column_to_spark_row = std::make_unique<CHColumnToSparkRow>();
+    header = current_query_plan->getCurrentDataStream().header.cloneEmpty();
+    ch_column_to_spark_row = std::make_unique<CHColumnToSparkRow>();
+
 }
 std::unique_ptr<SparkRowInfo> LocalExecutor::writeBlockToSparkRow(Block & block)
 {
-    return this->ch_column_to_spark_row->convertCHColumnToSparkRow(block);
+    return ch_column_to_spark_row->convertCHColumnToSparkRow(block);
 }
 bool LocalExecutor::hasNext()
 {
     bool has_next;
-    if (currentBlock().columns() == 0 || isConsumed())
+    try
     {
-        auto empty_block = header.cloneEmpty();
-        setCurrentBlock(empty_block);
-        has_next = this->executor->pull(currentBlock());
-        produce();
+        if (currentBlock().columns() == 0 || isConsumed())
+        {
+            auto empty_block = header.cloneEmpty();
+            setCurrentBlock(empty_block);
+            has_next = executor->pull(currentBlock());
+            produce();
+        }
+        else
+        {
+            has_next = true;
+        }
     }
-    else
+    catch (DB::Exception & e)
     {
-        has_next = true;
+        LOG_ERROR(
+            &Poco::Logger::get("LocalExecutor"), "run query plan failed. {}\n{}", e.message(), PlanUtil::explainPlan(*current_query_plan));
+        throw e;
     }
     return has_next;
 }
@@ -1706,15 +1792,15 @@ SparkRowInfoPtr LocalExecutor::next()
 {
     checkNextValid();
     SparkRowInfoPtr row_info = writeBlockToSparkRow(currentBlock());
-    produce();
-    if (this->spark_buffer)
+    consume();
+    if (spark_buffer)
     {
-        this->ch_column_to_spark_row->freeMem(spark_buffer->address, spark_buffer->size);
-        this->spark_buffer.reset();
+        ch_column_to_spark_row->freeMem(spark_buffer->address, spark_buffer->size);
+        spark_buffer.reset();
     }
-    this->spark_buffer = std::make_unique<SparkBuffer>();
-    this->spark_buffer->address = row_info->getBufferAddress();
-    this->spark_buffer->size = row_info->getTotalBytes();
+    spark_buffer = std::make_unique<SparkBuffer>();
+    spark_buffer->address = row_info->getBufferAddress();
+    spark_buffer->size = row_info->getTotalBytes();
     return row_info;
 }
 
@@ -1740,7 +1826,8 @@ Block & LocalExecutor::getHeader()
 {
     return header;
 }
-LocalExecutor::LocalExecutor(QueryContext & _query_context) : query_context(_query_context)
+LocalExecutor::LocalExecutor(QueryContext & _query_context)
+    : query_context(_query_context)
 {
 }
 }

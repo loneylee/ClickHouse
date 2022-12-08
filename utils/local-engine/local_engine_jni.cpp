@@ -3,6 +3,7 @@
 #include <string>
 #include <jni.h>
 #include <Builder/BroadCastJoinBuilder.h>
+#include <Builder/SerializedPlanBuilder.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <Operator/BlockCoalesceOperator.h>
 #include <Parser/CHColumnToSparkRow.h>
@@ -24,6 +25,7 @@
 #include <jni/ReservationListenerWrapper.h>
 #include <Storages/SubstraitSource/ReadBufferBuilder.h>
 
+
 bool inside_main = true;
 
 #ifdef __cplusplus
@@ -44,7 +46,7 @@ std::vector<std::string> stringSplit(const std::string & str, char delim)
     }
 }
 
-DB::ColumnWithTypeAndName inline getColumnFromColumnVector(JNIEnv * /*env*/, jobject obj, jlong block_address, jint column_position)
+DB::ColumnWithTypeAndName inline getColumnFromColumnVector(JNIEnv * /*env*/, jobject  /*obj*/, jlong block_address, jint column_position)
 {
     DB::Block * block = reinterpret_cast<DB::Block *>(block_address);
     return block->getByPosition(column_position);
@@ -79,6 +81,7 @@ std::string jstring2string(JNIEnv * env, jstring jStr)
 
 extern "C" {
 #endif
+
 
 extern void registerAllFunctions();
 extern void init(const std::string &);
@@ -143,9 +146,11 @@ jint JNI_OnLoad(JavaVM * vm, void * /*reserved*/)
     local_engine::ReservationListenerWrapper::reservation_listener_class
         = local_engine::CreateGlobalClassReference(env, "Lio/glutenproject/memory/alloc/ReservationListener;");
     local_engine::ReservationListenerWrapper::reservation_listener_reserve
-        = local_engine::GetMethodID(env, local_engine::ReservationListenerWrapper::reservation_listener_class, "reserve", "(J)V");
+        = local_engine::GetMethodID(env, local_engine::ReservationListenerWrapper::reservation_listener_class, "reserve", "(J)J");
+    local_engine::ReservationListenerWrapper::reservation_listener_reserve_or_throw
+        = local_engine::GetMethodID(env, local_engine::ReservationListenerWrapper::reservation_listener_class, "reserveOrThrow", "(J)V");
     local_engine::ReservationListenerWrapper::reservation_listener_unreserve
-        = local_engine::GetMethodID(env, local_engine::ReservationListenerWrapper::reservation_listener_class, "unreserve", "(J)V");
+        = local_engine::GetMethodID(env, local_engine::ReservationListenerWrapper::reservation_listener_class, "unreserve", "(J)J");
 
     local_engine::JNIUtils::vm = vm;
     local_engine::registerReadBufferBuildes(local_engine::ReadBufferBuilderFactory::instance());
@@ -276,6 +281,7 @@ jlong Java_io_glutenproject_vectorized_BatchIterator_nativeCHNext(JNIEnv * env, 
     LOCAL_ENGINE_JNI_METHOD_START
     local_engine::LocalExecutor * executor = reinterpret_cast<local_engine::LocalExecutor *>(executor_address);
     DB::Block * column_batch = executor->nextColumnar();
+    LOG_DEBUG(&Poco::Logger::get("jni"), "row size of the column batch: {}", column_batch->rows());
     return reinterpret_cast<Int64>(column_batch);
     LOCAL_ENGINE_JNI_METHOD_END(env, -1)
 }
@@ -487,80 +493,15 @@ jint Java_io_glutenproject_vectorized_CHNativeBlock_nativeNumColumns(JNIEnv * en
     LOCAL_ENGINE_JNI_METHOD_END(env, -1)
 }
 
-jstring Java_io_glutenproject_vectorized_CHNativeBlock_nativeColumnType(JNIEnv * env, jobject /*obj*/, jlong block_address, jint position)
+jbyteArray Java_io_glutenproject_vectorized_CHNativeBlock_nativeColumnType(JNIEnv * env, jobject /*obj*/, jlong block_address, jint position)
 {
     LOCAL_ENGINE_JNI_METHOD_START
     auto * block = reinterpret_cast<DB::Block *>(block_address);
-    DB::WhichDataType which(block->getByPosition(position).type);
-    std::string type;
-    if (which.isNullable())
-    {
-        const auto * nullable = checkAndGetDataType<DB::DataTypeNullable>(block->getByPosition(position).type.get());
-        which = DB::WhichDataType(nullable->getNestedType());
-    }
-
-    if (which.isDate32())
-    {
-        type = "Date";
-    }
-    else if (which.isDateTime64())
-    {
-        type = "Timestamp";
-    }
-    else if (which.isFloat32())
-    {
-        type = "Float";
-    }
-    else if (which.isFloat64())
-    {
-        type = "Double";
-    }
-    else if (which.isInt32())
-    {
-        type = "Integer";
-    }
-    else if (which.isInt64())
-    {
-        type = "Long";
-    }
-    else if (which.isUInt64())
-    {
-        type = "Long";
-    }
-    else if (which.isInt8())
-    {
-        type = "Byte";
-    }
-    else if (which.isInt16())
-    {
-        type = "Short";
-    }
-    else if (which.isUInt16())
-    {
-        type = "Integer";
-    }
-    else if (which.isUInt8())
-    {
-        type = "Boolean";
-    }
-    else if (which.isString())
-    {
-        type = "String";
-    }
-    else if (which.isAggregateFunction())
-    {
-        type = "Binary";
-    }
-    else
-    {
-        auto type_name = std::string(block->getByPosition(position).type->getName());
-        auto col_name = block->getByPosition(position).name;
-        LOG_ERROR(&Poco::Logger::get("jni"), "column {}, unsupported datatype {}", col_name, type_name);
-        throw std::runtime_error("unsupported datatype " + type_name);
-    }
-
-    return local_engine::charTojstring(env, type.c_str());
-    LOCAL_ENGINE_JNI_METHOD_END(env, local_engine::charTojstring(env, ""))
+    const auto & col = block->getByPosition(position);
+    std::string substrait_type;
+    dbms::SerializedPlanBuilder::buildType(col.type, substrait_type);
+    return local_engine::stringTojbyteArray(env, substrait_type);
+    LOCAL_ENGINE_JNI_METHOD_END(env, local_engine::stringTojbyteArray(env, ""))
 }
 
 jlong Java_io_glutenproject_vectorized_CHNativeBlock_nativeTotalBytes(JNIEnv * env, jobject /*obj*/, jlong block_address)
@@ -662,18 +603,15 @@ jlong Java_io_glutenproject_vectorized_CHShuffleSplitterJniWrapper_nativeMake(
 {
     LOCAL_ENGINE_JNI_METHOD_START
     std::vector<std::string> expr_vec;
+    std::string exprs;
     if (expr_list != nullptr)
     {
         int len = env->GetArrayLength(expr_list);
         auto * str = reinterpret_cast<jbyte *>(new char[len]);
         memset(str, 0, len);
         env->GetByteArrayRegion(expr_list, 0, len, str);
-        std::string exprs(str, str + len);
+        exprs = std::string(str, str + len);
         delete[] str;
-        for (const auto & expr : stringSplit(exprs, ','))
-        {
-            expr_vec.emplace_back(expr);
-        }
     }
     local_engine::SplitOptions options{
         .buffer_size = static_cast<size_t>(buffer_size),
@@ -681,7 +619,7 @@ jlong Java_io_glutenproject_vectorized_CHShuffleSplitterJniWrapper_nativeMake(
         .local_tmp_dir = jstring2string(env, local_dirs),
         .map_id = static_cast<int>(map_id),
         .partition_nums = static_cast<size_t>(num_partitions),
-        .exprs = expr_vec,
+        .exprs = exprs,
         .compress_method = jstring2string(env, codec)};
     local_engine::SplitterHolder * splitter
         = new local_engine::SplitterHolder{.splitter = local_engine::ShuffleSplitter::create(jstring2string(env, short_name), options)};
@@ -704,13 +642,13 @@ jobject Java_io_glutenproject_vectorized_CHShuffleSplitterJniWrapper_stop(JNIEnv
     local_engine::SplitterHolder * splitter = reinterpret_cast<local_engine::SplitterHolder *>(splitterId);
     auto result = splitter->splitter->stop();
     const auto & partition_lengths = result.partition_length;
-    auto partition_length_arr = env->NewLongArray(partition_lengths.size());
-    auto src = reinterpret_cast<const jlong *>(partition_lengths.data());
+    auto *partition_length_arr = env->NewLongArray(partition_lengths.size());
+    const auto *src = reinterpret_cast<const jlong *>(partition_lengths.data());
     env->SetLongArrayRegion(partition_length_arr, 0, partition_lengths.size(), src);
 
     const auto & raw_partition_lengths = result.raw_partition_length;
-    auto raw_partition_length_arr = env->NewLongArray(raw_partition_lengths.size());
-    auto raw_src = reinterpret_cast<const jlong *>(raw_partition_lengths.data());
+    auto *raw_partition_length_arr = env->NewLongArray(raw_partition_lengths.size());
+    const auto *raw_src = reinterpret_cast<const jlong *>(raw_partition_lengths.data());
     env->SetLongArrayRegion(raw_partition_length_arr, 0, raw_partition_lengths.size(), raw_src);
 
     jobject split_result = env->NewObject(
@@ -766,35 +704,38 @@ void Java_io_glutenproject_vectorized_BlockNativeConverter_freeMemory(JNIEnv * e
 {
     LOCAL_ENGINE_JNI_METHOD_START
     local_engine::CHColumnToSparkRow converter;
-    converter.freeMem(reinterpret_cast<uint8_t *>(address), size);
+    converter.freeMem(reinterpret_cast<char *>(address), size);
     LOCAL_ENGINE_JNI_METHOD_END(env,)
 }
 
 jlong Java_io_glutenproject_vectorized_BlockNativeConverter_convertSparkRowsToCHColumn(
-    JNIEnv * env, jobject, jobject java_iter, jobjectArray names, jobjectArray types, jbooleanArray is_nullables)
+    JNIEnv * env, jobject, jobject java_iter, jobjectArray names, jobjectArray types)
 {
     LOCAL_ENGINE_JNI_METHOD_START
     using namespace std;
-    int column_size = env->GetArrayLength(names);
 
+    int num_columns = env->GetArrayLength(names);
     vector<string> c_names;
     vector<string> c_types;
-    vector<bool> c_isnullables;
-    jboolean * p_booleans = env->GetBooleanArrayElements(is_nullables, nullptr);
-    for (int i = 0; i < column_size; i++)
+    c_names.reserve(num_columns);
+    for (int i = 0; i < num_columns; i++)
     {
         auto * name = static_cast<jstring>(env->GetObjectArrayElement(names, i));
-        auto * type = static_cast<jstring>(env->GetObjectArrayElement(types, i));
-        c_names.push_back(jstring2string(env, name));
-        c_types.push_back(jstring2string(env, type));
-        c_isnullables.push_back(p_booleans[i] == JNI_TRUE);
+        c_names.emplace_back(std::move(jstring2string(env, name)));
 
+        auto * type = static_cast<jbyteArray>(env->GetObjectArrayElement(types, i));
+        auto type_length = env->GetArrayLength(type);
+        jbyte * type_ptr = env->GetByteArrayElements(type, nullptr);
+        string str_type(reinterpret_cast<const char *>(type_ptr), type_length);
+        c_types.emplace_back(std::move(str_type));
+
+        env->ReleaseByteArrayElements(type, type_ptr, JNI_ABORT);
         env->DeleteLocalRef(name);
         env->DeleteLocalRef(type);
     }
-    env->ReleaseBooleanArrayElements(is_nullables, p_booleans, JNI_ABORT);
     local_engine::SparkRowToCHColumn converter;
-    return reinterpret_cast<jlong>(converter.convertSparkRowItrToCHColumn(java_iter, c_names, c_types, c_isnullables));
+    auto * block = converter.convertSparkRowItrToCHColumn(java_iter, c_names, c_types);
+    return reinterpret_cast<jlong>(block);
     LOCAL_ENGINE_JNI_METHOD_END(env, -1)
 }
 
@@ -874,8 +815,7 @@ jlong Java_io_glutenproject_vectorized_BlockSplitIterator_nativeCreate(
     options.partition_nums = partition_num;
     options.buffer_size = buffer_size;
     auto expr_str = jstring2string(env, expr);
-    Poco::StringTokenizer exprs(expr_str, ",");
-    options.exprs.insert(options.exprs.end(), exprs.begin(), exprs.end());
+    options.exprs_buffer.swap(expr_str);
     local_engine::NativeSplitter::Holder * splitter = new local_engine::NativeSplitter::Holder{
         .splitter = local_engine::NativeSplitter::create(jstring2string(env, name), options, in)};
     return reinterpret_cast<jlong>(splitter);

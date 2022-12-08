@@ -2,7 +2,10 @@
 #include <exception>
 #include <stdexcept>
 #include <jni.h>
+#include <string>
 #include <Common/Exception.h>
+#include <Poco/Logger.h>
+#include <base/logger_useful.h>
 
 namespace DB
 {
@@ -24,10 +27,13 @@ jmethodID GetStaticMethodID(JNIEnv * env, jclass this_class, const char * name, 
 
 jstring charTojstring(JNIEnv* env, const char* pat);
 
+jbyteArray stringTojbyteArray(JNIEnv* env, const std::string & str);
+
 #define LOCAL_ENGINE_JNI_JMETHOD_START
 #define LOCAL_ENGINE_JNI_JMETHOD_END(env) \
     if ((env)->ExceptionCheck())\
     {\
+        LOG_ERROR(&Poco::Logger::get("local_engine"), "Enter java exception handle.");\
         (env)->ExceptionDescribe();\
         (env)->ExceptionClear();\
         throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "Call java method failed");\

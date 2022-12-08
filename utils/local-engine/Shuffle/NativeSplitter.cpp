@@ -1,9 +1,19 @@
 #include "NativeSplitter.h"
+#include <functional>
+#include <memory>
 #include <Functions/FunctionFactory.h>
 #include <Parser/SerializedPlanParser.h>
-#include "Common/Exception.h"
-#include <Common/JNIUtils.h>
+#include <Common/Exception.h>
+#include <boost/asio/detail/eventfd_select_interrupter.hpp>
 #include <jni/jni_common.h>
+#include <Common/Exception.h>
+#include <Common/JNIUtils.h>
+#include <Core/Block.h>
+#include <base/types.h>
+#include <Poco/Logger.h>
+#include <base/logger_useful.h>
+#include <Poco/StringTokenizer.h>
+#include <string>
 
 namespace local_engine
 {
@@ -50,8 +60,7 @@ void NativeSplitter::split(DB::Block & block)
 
 NativeSplitter::NativeSplitter(Options options_, jobject input_) : options(options_)
 {
-    int attached;
-    JNIEnv * env = JNIUtils::getENV(&attached);
+    GET_JNIENV(env)
     input = env->NewGlobalRef(input_);
     partition_ids.reserve(options.buffer_size);
     partition_buffer.reserve(options.partition_nums);
@@ -59,21 +68,16 @@ NativeSplitter::NativeSplitter(Options options_, jobject input_) : options(optio
     {
         partition_buffer.emplace_back(std::make_shared<ColumnsBuffer>());
     }
-    if (attached)
-    {
-        JNIUtils::detachCurrentThread();
-    }
+    CLEAN_JNIENV
 }
+
 NativeSplitter::~NativeSplitter()
 {
-    int attached;
-    JNIEnv * env = JNIUtils::getENV(&attached);
+    GET_JNIENV(env)
     env->DeleteGlobalRef(input);
-    if (attached)
-    {
-        JNIUtils::detachCurrentThread();
-    }
+    CLEAN_JNIENV
 }
+
 bool NativeSplitter::hasNext()
 {
     while (output_buffer.empty())
@@ -103,6 +107,7 @@ bool NativeSplitter::hasNext()
     }
     return !output_buffer.empty();
 }
+
 DB::Block * NativeSplitter::next()
 {
     if (!output_buffer.empty())
@@ -112,6 +117,7 @@ DB::Block * NativeSplitter::next()
     consume();
     return &currentBlock();
 }
+
 int32_t NativeSplitter::nextPartitionId()
 {
     return next_partition_id;
@@ -119,25 +125,17 @@ int32_t NativeSplitter::nextPartitionId()
 
 bool NativeSplitter::inputHasNext()
 {
-    int attached;
-    JNIEnv * env = JNIUtils::getENV(&attached);
+    GET_JNIENV(env)
     bool next = safeCallBooleanMethod(env, input, iterator_has_next);
-    if (attached)
-    {
-        JNIUtils::detachCurrentThread();
-    }
+    CLEAN_JNIENV
     return next;
 }
 
 int64_t NativeSplitter::inputNext()
 {
-    int attached;
-    JNIEnv * env = JNIUtils::getENV(&attached);
+    GET_JNIENV(env)
     int64_t result = safeCallLongMethod(env, input, iterator_next);
-    if (attached)
-    {
-        JNIUtils::detachCurrentThread();
-    }
+    CLEAN_JNIENV
     return result;
 }
 std::unique_ptr<NativeSplitter> NativeSplitter::create(const std::string & short_name, Options options_, jobject input)
@@ -155,41 +153,50 @@ std::unique_ptr<NativeSplitter> NativeSplitter::create(const std::string & short
         options_.partition_nums = 1;
         return std::make_unique<RoundRobinNativeSplitter>(options_, input);
     }
+    else if (short_name == "range")
+    {
+        return std::make_unique<RangePartitionNativeSplitter>(options_, input);
+    }
     else
     {
         throw std::runtime_error("unsupported splitter " + short_name);
     }
 }
 
+HashNativeSplitter::HashNativeSplitter(NativeSplitter::Options options_, jobject input)
+    : NativeSplitter(options_, input)
+{
+    Poco::StringTokenizer exprs_list(options_.exprs_buffer, ",");
+    std::vector<std::string> hash_fields;
+    hash_fields.insert(hash_fields.end(), exprs_list.begin(), exprs_list.end());
+
+    selector_builder = std::make_unique<HashSelectorBuilder>(options.partition_nums, hash_fields, "murmurHash3_32");
+}
+
 void HashNativeSplitter::computePartitionId(Block & block)
 {
-    ColumnsWithTypeAndName args;
-    for (auto & name : options.exprs)
-    {
-        args.emplace_back(block.getByName(name));
-    }
-    if (!hash_function)
-    {
-        auto & factory = DB::FunctionFactory::instance();
-        auto function = factory.get("murmurHash3_32", local_engine::SerializedPlanParser::global_context);
-
-        hash_function = function->build(args);
-    }
-    auto result_type = hash_function->getResultType();
-    auto hash_column = hash_function->execute(args, result_type, block.rows(), false);
-    partition_ids.clear();
-    for (size_t i = 0; i < block.rows(); i++)
-    {
-        partition_ids.emplace_back(static_cast<UInt64>(hash_column->get64(i) % options.partition_nums));
-    }
+    partition_ids = selector_builder->build(block);
 }
+
+RoundRobinNativeSplitter::RoundRobinNativeSplitter(NativeSplitter::Options options_, jobject input) : NativeSplitter(options_, input)
+{
+    selector_builder = std::make_unique<RoundRobinSelectorBuilder>(options_.partition_nums);
+}
+
 void RoundRobinNativeSplitter::computePartitionId(Block & block)
 {
-    partition_ids.resize(block.rows());
-    for (auto & pid : partition_ids)
-    {
-        pid = pid_selection;
-        pid_selection = (pid_selection + 1) % options.partition_nums;
-    }
+    partition_ids = selector_builder->build(block);
 }
+
+RangePartitionNativeSplitter::RangePartitionNativeSplitter(NativeSplitter::Options options_, jobject input)
+    : NativeSplitter(options_, input)
+{
+    selector_builder = std::make_unique<RangeSelectorBuilder>(options_.exprs_buffer);
+}
+
+void RangePartitionNativeSplitter::computePartitionId(DB::Block & block)
+{
+    partition_ids = selector_builder->build(block);
+}
+
 }

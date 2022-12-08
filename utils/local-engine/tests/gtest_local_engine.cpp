@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <Poco/Util/MapConfiguration.h>
 #include <Builder/SerializedPlanBuilder.h>
 #include <Columns/ColumnVector.h>
 #include <DataTypes/DataTypesNumber.h>
@@ -20,10 +21,12 @@
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Storages/MergeTree/MergeTreeSettings.h>
 #include <Storages/SelectQueryInfo.h>
+#include <Storages/CustomStorageMergeTree.h>
 #include <gtest/gtest.h>
 #include <substrait/plan.pb.h>
-#include "Storages/CustomStorageMergeTree.h"
 #include "testConfig.h"
+#include "Common/Logger.h"
+#include "Common/DebugUtils.h"
 
 using namespace local_engine;
 using namespace dbms;
@@ -39,11 +42,10 @@ TEST(TestSelect, ReadRel)
                         .column("type_string", "String")
                         .build();
     dbms::SerializedPlanBuilder plan_builder;
-    auto plan = plan_builder.read(TEST_DATA(/ data / iris.parquet), std::move(schema)).build();
+    auto plan = plan_builder.read(TEST_DATA(/data/iris.parquet), std::move(schema)).build();
 
     ASSERT_TRUE(plan->relations(0).root().input().has_read());
     ASSERT_EQ(plan->relations_size(), 1);
-    std::cout << "start execute" << std::endl;
     local_engine::LocalExecutor local_executor;
     local_engine::SerializedPlanParser parser(local_engine::SerializedPlanParser::global_context);
     auto query_plan = parser.parse(std::move(plan));
@@ -51,7 +53,6 @@ TEST(TestSelect, ReadRel)
     ASSERT_TRUE(local_executor.hasNext());
     while (local_executor.hasNext())
     {
-        std::cout << "fetch batch" << std::endl;
         local_engine::SparkRowInfoPtr spark_row_info = local_executor.next();
         ASSERT_GT(spark_row_info->getNumRows(), 0);
         local_engine::SparkRowToCHColumn converter;
@@ -65,11 +66,10 @@ TEST(TestSelect, ReadDate)
     dbms::SerializedSchemaBuilder schema_builder;
     auto * schema = schema_builder.column("date", "Date").build();
     dbms::SerializedPlanBuilder plan_builder;
-    auto plan = plan_builder.read(TEST_DATA(/ data / date.parquet), std::move(schema)).build();
+    auto plan = plan_builder.read(TEST_DATA(/data/date.parquet), std::move(schema)).build();
 
     ASSERT_TRUE(plan->relations(0).root().input().has_read());
     ASSERT_EQ(plan->relations_size(), 1);
-    std::cout << "start execute" << std::endl;
     local_engine::LocalExecutor local_executor;
     local_engine::SerializedPlanParser parser(local_engine::SerializedPlanParser::global_context);
     auto query_plan = parser.parse(std::move(plan));
@@ -77,7 +77,6 @@ TEST(TestSelect, ReadDate)
     ASSERT_TRUE(local_executor.hasNext());
     while (local_executor.hasNext())
     {
-        std::cout << "fetch batch" << std::endl;
         local_engine::SparkRowInfoPtr spark_row_info = local_executor.next();
         ASSERT_GT(spark_row_info->getNumRows(), 0);
         local_engine::SparkRowToCHColumn converter;
@@ -107,9 +106,8 @@ TEST(TestSelect, TestFilter)
     auto * type_0 = dbms::scalarFunction(dbms::EQUAL_TO, {dbms::selection(5), dbms::literal("类型1")});
 
     auto * filter = dbms::scalarFunction(dbms::AND, {less_exp, type_0});
-    auto plan = plan_builder.registerSupportedFunctions().filter(filter).read(TEST_DATA(/ data / iris.parquet), std::move(schema)).build();
+    auto plan = plan_builder.registerSupportedFunctions().filter(filter).read(TEST_DATA(/data/iris.parquet), std::move(schema)).build();
     ASSERT_EQ(plan->relations_size(), 1);
-    std::cout << "start execute" << std::endl;
     local_engine::LocalExecutor local_executor;
     local_engine::SerializedPlanParser parser(SerializedPlanParser::global_context);
     auto query_plan = parser.parse(std::move(plan));
@@ -117,7 +115,6 @@ TEST(TestSelect, TestFilter)
     ASSERT_TRUE(local_executor.hasNext());
     while (local_executor.hasNext())
     {
-        std::cout << "fetch batch" << std::endl;
         local_engine::SparkRowInfoPtr spark_row_info = local_executor.next();
         ASSERT_EQ(spark_row_info->getNumRows(), 1);
         local_engine::SparkRowToCHColumn converter;
@@ -144,10 +141,9 @@ TEST(TestSelect, TestAgg)
     auto plan = plan_builder.registerSupportedFunctions()
                     .aggregate({}, {measure})
                     .filter(less_exp)
-                    .read(TEST_DATA(/ data / iris.parquet), std::move(schema))
+                    .read(TEST_DATA(/data/iris.parquet), std::move(schema))
                     .build();
     ASSERT_EQ(plan->relations_size(), 1);
-    std::cout << "start execute" << std::endl;
     local_engine::LocalExecutor local_executor;
     local_engine::SerializedPlanParser parser(SerializedPlanParser::global_context);
     auto query_plan = parser.parse(std::move(plan));
@@ -155,17 +151,14 @@ TEST(TestSelect, TestAgg)
     ASSERT_TRUE(local_executor.hasNext());
     while (local_executor.hasNext())
     {
-        std::cout << "fetch batch" << std::endl;
         local_engine::SparkRowInfoPtr spark_row_info = local_executor.next();
         ASSERT_EQ(spark_row_info->getNumRows(), 1);
         ASSERT_EQ(spark_row_info->getNumCols(), 1);
         local_engine::SparkRowToCHColumn converter;
         auto block = converter.convertSparkRowInfoToCHColumn(*spark_row_info, local_executor.getHeader());
         ASSERT_EQ(spark_row_info->getNumRows(), block->rows());
-        auto reader = SparkRowReader(spark_row_info->getNumCols());
-        reader.pointTo(
-            reinterpret_cast<int64_t>(spark_row_info->getBufferAddress() + spark_row_info->getOffsets()[1]),
-            spark_row_info->getLengths()[0]);
+        auto reader = SparkRowReader(block->getDataTypes());
+        reader.pointTo(spark_row_info->getBufferAddress() + spark_row_info->getOffsets()[1], spark_row_info->getLengths()[0]);
         ASSERT_EQ(reader.getDouble(0), 103.2);
     }
 }
@@ -248,6 +241,44 @@ TEST(TESTUtil, TestByteToLong)
     ASSERT_EQ(expected, result);
 }
 
+
+TEST(TestSimpleAgg, TestGenerate)
+{
+//    dbms::SerializedSchemaBuilder schema_builder;
+//    auto * schema = schema_builder.column("l_orderkey", "I64")
+//                        .column("l_partkey", "I64")
+//                        .column("l_suppkey", "I64")
+//                        .build();
+//    dbms::SerializedPlanBuilder plan_builder;
+//    auto * measure = dbms::measureFunction(dbms::SUM, {dbms::selection(6)});
+//    auto plan
+//        = plan_builder.registerSupportedFunctions()
+//              .aggregate({}, {measure})
+//              .read(
+//                  //"/home/kyligence/Documents/test-dataset/intel-gazelle-test-" + std::to_string(state.range(0)) + ".snappy.parquet",
+//                  "/data0/tpch100_zhichao/parquet_origin/lineitem/part-00087-066b93b4-39e1-4d46-83ab-d7752096b599-c000.snappy.parquet",
+//                  std::move(schema))
+//              .build();
+    local_engine::SerializedPlanParser parser(local_engine::SerializedPlanParser::global_context);
+////    auto query_plan = parser.parse(std::move(plan));
+
+    //std::ifstream t("/home/hongbin/develop/experiments/221011_substrait_agg_on_empty_table.json");
+    //std::ifstream t("/home/hongbin/develop/experiments/221101_substrait_agg_on_simple_table_last_phrase.json");
+    std::ifstream t("/home/hongbin/develop/experiments/221102_substrait_agg_and_countdistinct_second_phrase.json");
+    std::string str((std::istreambuf_iterator<char>(t)),
+                    std::istreambuf_iterator<char>());
+    auto query_plan = parser.parseJson(str);
+    local_engine::LocalExecutor local_executor;
+    local_executor.execute(std::move(query_plan));
+    while (local_executor.hasNext())
+    {
+        //local_engine::SparkRowInfoPtr spark_row_info = local_executor.next();
+
+        auto block = local_executor.nextColumnar();
+        debug::headBlock(*block);
+    }
+}
+
 TEST(TestSubstrait, TestGenerate)
 {
     dbms::SerializedSchemaBuilder schema_builder;
@@ -327,13 +358,19 @@ TEST(ReadBufferFromFile, seekBackwards)
 
 int main(int argc, char ** argv)
 {
+    local_engine::Logger::initConsoleLogger();
+
     SharedContextHolder shared_context = Context::createShared();
     local_engine::SerializedPlanParser::global_context = Context::createGlobal(shared_context.get());
     local_engine::SerializedPlanParser::global_context->makeGlobalContext();
-    local_engine::SerializedPlanParser::global_context->setConfig(local_engine::SerializedPlanParser::config);
+    auto config = Poco::AutoPtr(new Poco::Util::MapConfiguration());
+    local_engine::SerializedPlanParser::global_context->setConfig(config);
     local_engine::SerializedPlanParser::global_context->setPath("/tmp");
     local_engine::SerializedPlanParser::global_context->getDisksMap().emplace();
     local_engine::SerializedPlanParser::initFunctionEnv();
+    auto & factory = local_engine::ReadBufferBuilderFactory::instance();
+    registerReadBufferBuildes(factory);
+
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

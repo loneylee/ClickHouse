@@ -17,7 +17,9 @@
 #include <arrow/ipc/writer.h>
 #include <substrait/plan.pb.h>
 #include <Common/BlockIterator.h>
-#include "Core/SortDescription.h"
+#include <DataTypes/Serializations/ISerialization.h>
+#include <base/types.h>
+#include <Core/SortDescription.h>
 
 namespace local_engine
 {
@@ -41,11 +43,52 @@ static const std::map<std::string, std::string> SCALAR_FUNCTIONS = {
     {"cast", ""},
     {"alias", "alias"},
 
+    /// arithmetic functions
     {"subtract", "minus"},
     {"multiply", "multiply"},
     {"add", "plus"},
     {"divide", "divide"},
     {"modulus", "modulo"},
+    {"abs", "abs"},
+    {"ceil", "ceil"},
+    {"floor", "floor"},
+    {"round", "round"},
+    {"bround", "roundBankers"},
+    {"exp", "exp"},
+    {"power", "power"},
+    {"cos", "cos"},
+    {"cosh", "cosh"},
+    {"sin", "sin"},
+    {"sinh", "sinh"},
+    {"tan", "tan"},
+    {"tanh", "tanh"},
+    {"acos", "acos"},
+    {"asin", "asin"},
+    {"atan", "atan"},
+    {"atan2", "atan2"},
+    {"BitwiseNot", "bitNot"},
+    {"BitwiseAnd", "bitAnd"},
+    {"BitwiseOr", "bitOr"},
+    {"BitwiseXor", "bitXor"},
+    {"sqrt", "sqrt"},
+    {"cbrt", "cbrt"},
+    {"degrees", "degrees"},
+    {"e", "e"},
+    {"pi", "pi"},
+    {"hex", "hex"},
+    {"unhex", "unhex"},
+    {"hypot", "hypot"},
+    {"sign", "sign"},
+    {"log10", "log10"},
+    {"log1p", "log1p"},
+    {"log2", "log2"},
+    {"log", "log"},
+    {"radians", "radians"},
+    {"greatest", "greatest"},
+    {"least", "least"},
+    {"quarter", "toQuarter"},
+    {"shiftleft", "bitShiftLeft"},
+    {"shiftright", "bitShiftRight"},
 
     /// string functions
     {"like", "like"},
@@ -56,8 +99,14 @@ static const std::map<std::string, std::string> SCALAR_FUNCTIONS = {
     {"substring", "substring"},
     {"lower", "lower"},
     {"upper", "upper"},
+    {"trim", "trimBoth"},
     {"ltrim", "trimLeft"},
     {"rtrim", "trimRight"},
+    {"concat", "concat"},
+    {"strpos", "position"},
+    {"char_length", "char_length"},
+    {"replace", "replaceAll"},
+    {"chr", "char"},
 
     // in functions
     {"in", "in"},
@@ -79,23 +128,36 @@ struct QueryContext
     std::shared_ptr<CustomStorageMergeTree> custom_storage_merge_tree;
 };
 
+DataTypePtr wrapNullableType(substrait::Type_Nullability nullable, DataTypePtr nested_type);
+DataTypePtr wrapNullableType(bool nullable, DataTypePtr nested_type);
+
 class SerializedPlanParser
 {
 public:
     explicit SerializedPlanParser(const ContextPtr & context);
     static void initFunctionEnv();
-    DB::QueryPlanPtr parse(const std::string& plan);
+    DB::QueryPlanPtr parse(const std::string & plan);
+    DB::QueryPlanPtr parseJson(const std::string & json_plan);
     DB::QueryPlanPtr parse(std::unique_ptr<substrait::Plan> plan);
 
     DB::QueryPlanPtr parseReadRealWithLocalFile(const substrait::ReadRel & rel);
     DB::QueryPlanPtr parseReadRealWithJavaIter(const substrait::ReadRel & rel);
     DB::QueryPlanPtr parseMergeTreeTable(const substrait::ReadRel & rel);
+    PrewhereInfoPtr parsePreWhereInfo(const substrait::Expression & rel, Block & input, std::vector<String>& not_nullable_columns);
 
     static bool isReadRelFromJava(const substrait::ReadRel & rel);
     static DB::Block parseNameStruct(const substrait::NamedStruct & struct_);
     static DB::DataTypePtr parseType(const substrait::Type & type);
+    // This is used for construct a data type from spark type name;
+    static DB::DataTypePtr parseType(const std::string & type);
 
     void addInputIter(jobject iter) { input_iters.emplace_back(iter); }
+
+    void parseExtensions(const ::google::protobuf::RepeatedPtrField<substrait::extensions::SimpleExtensionDeclaration> & extensions);
+    std::shared_ptr<DB::ActionsDAG> expressionsToActionsDAG(
+        const ::google::protobuf::RepeatedPtrField<substrait::Expression> & expressions,
+        const DB::Block & header,
+        const DB::Block & read_schema);
 
     static ContextMutablePtr global_context;
     static Context::ConfigurationPtr config;
@@ -112,7 +174,7 @@ private:
     static void reorderJoinOutput(DB::QueryPlan & plan, DB::Names cols);
     static std::string getFunctionName(const std::string & function_sig, const substrait::Expression_ScalarFunction & function);
     DB::ActionsDAGPtr parseFunction(
-        const DataStream & input,
+        const Block & input,
         const substrait::Expression & rel,
         std::string & result_name,
         std::vector<String> & required_columns,
@@ -124,16 +186,25 @@ private:
         std::vector<String> & required_columns,
         DB::ActionsDAGPtr actions_dag = nullptr,
         bool keep_result = false);
+    void addPreProjectStepIfNeeded(
+        QueryPlan & plan,
+        const substrait::AggregateRel & rel,
+        std::vector<std::string> & measure_names,
+        std::map<std::string, std::string> & nullable_measure_names);
     DB::QueryPlanStepPtr parseAggregate(DB::QueryPlan & plan, const substrait::AggregateRel & rel, bool & is_final);
     const DB::ActionsDAG::Node * parseArgument(DB::ActionsDAGPtr action_dag, const substrait::Expression & rel);
     const ActionsDAG::Node *
     toFunctionNode(ActionsDAGPtr action_dag, const String & function, const DB::ActionsDAG::NodeRawConstPtrs & args);
     // remove nullable after isNotNull
     void removeNullable(std::vector<String> require_columns, ActionsDAGPtr actionsDag);
-    void wrapNullable(std::vector<String> columns, ActionsDAGPtr actionsDag);
     std::string getUniqueName(const std::string & name) { return name + "_" + std::to_string(name_no++); }
 
-    static Aggregator::Params getAggregateParam(const Block & header, const ColumnNumbers & keys, const AggregateDescriptions & aggregates)
+    static std::pair<DataTypePtr, Field> parseLiteral(const substrait::Expression_Literal & literal);
+    void wrapNullable(std::vector<String> columns, ActionsDAGPtr actionsDag,
+                      std::map<std::string, std::string>& nullable_measure_names);
+
+    static Aggregator::Params getAggregateParam(const Block & header, const ColumnNumbers & keys,
+                                                const AggregateDescriptions & aggregates)
     {
         Settings settings;
         return Aggregator::Params(
@@ -162,17 +233,20 @@ private:
     }
 
     DB::QueryPlanPtr parseSort(const substrait::SortRel & sort_rel);
-    DB::SortDescription parseSortDescription(const substrait::SortRel & sort_rel);
+    static DB::SortDescription parseSortDescription(const substrait::SortRel & sort_rel);
+
+    void addRemoveNullableStep(QueryPlan & plan, std::vector<String> columns);
 
     int name_no = 0;
     std::unordered_map<std::string, std::string> function_mapping;
     std::vector<jobject> input_iters;
+    const substrait::ProjectRel * last_project = nullptr;
     ContextPtr context;
 };
 
 struct SparkBuffer
 {
-    uint8_t * address;
+    char * address;
     size_t size;
 };
 
@@ -185,14 +259,7 @@ public:
     SparkRowInfoPtr next();
     Block * nextColumnar();
     bool hasNext();
-    ~LocalExecutor()
-    {
-        if (this->spark_buffer)
-        {
-            this->ch_column_to_spark_row->freeMem(spark_buffer->address, spark_buffer->size);
-            this->spark_buffer.reset();
-        }
-    }
+    ~LocalExecutor();
 
     Block & getHeader();
 
@@ -204,5 +271,6 @@ private:
     Block header;
     std::unique_ptr<CHColumnToSparkRow> ch_column_to_spark_row;
     std::unique_ptr<SparkBuffer> spark_buffer;
+    DB::QueryPlanPtr current_query_plan;
 };
 }
