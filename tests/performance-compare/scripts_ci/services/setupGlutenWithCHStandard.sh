@@ -65,7 +65,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.driver.memoryOverhead=4G \
   --conf spark.serializer=org.apache.spark.serializer.JavaSerializer \
   --conf spark.default.parallelism=45 \
-  --conf spark.sql.shuffle.partitions=90 \
+  --conf spark.sql.shuffle.partitions=45 \
   --conf spark.sql.files.minPartitionNum=1 \
   --conf spark.sql.files.maxPartitionBytes=1G \
   --conf spark.sql.files.openCostInBytes=1073741824 \
@@ -76,7 +76,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.locality.wait.process=0 \
   --conf spark.sql.columnVector.offheap.enabled=true \
   --conf spark.memory.offHeap.enabled=true \
-  --conf spark.memory.offHeap.size=30g \
+  --conf spark.memory.offHeap.size=45g \
   --conf spark.plugins=io.glutenproject.GlutenPlugin \
   --conf spark.gluten.sql.columnar.columnartorow=true \
   --conf spark.gluten.sql.columnar.loadnative=true \
@@ -89,7 +89,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.io.compression.codec=LZ4 \
   --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager \
   --conf spark.gluten.sql.columnar.shuffleSplitDefaultSize=65505 \
-  --conf spark.sql.adaptive.enabled=false \
+  --conf spark.sql.adaptive.enabled=true \
   --conf spark.gluten.sql.columnar.backend.ch.use.v2=false \
   --conf spark.sql.exchange.reuse=true \
   --conf spark.sql.autoBroadcastJoinThreshold=10MB \
@@ -109,7 +109,7 @@ echo "$(date '+%F %T'): start thrift server"
   --conf spark.memory.storageFraction=0.3 \
   --conf spark.gluten.sql.columnar.sort=false \
   --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.logger.level=error \
-  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.local_engine.settings.max_bytes_before_external_group_by=1000000000 \
+  --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.local_engine.settings.max_bytes_before_external_group_by=5000000000 \
   --conf spark.gluten.sql.columnar.backend.ch.runtime_conf.hdfs.libhdfs3_conf=/home/ubuntu/glutenTest/spark/spark-3.2.2-bin-hadoop2.7/conf/hdfs-site.xml
 #  --conf spark.local.dir=/dev/shm/ \
 
