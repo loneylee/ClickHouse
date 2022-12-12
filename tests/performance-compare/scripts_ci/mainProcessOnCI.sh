@@ -15,12 +15,7 @@ private_worker_hosts='' #comma seperated string list
 
 #start remote cloud vms,suppose CI VM has secret key to access cloud vms
 echo "$(date '+%F %T'): start hdfs and cloud vms!"
-if [ ${run_mode} = "local" ];then
-	driver_host='10.198.57.212'
-	private_driver_host='10.198.57.212'
-	private_worker_hosts='10.198.55.236'
-	echo "$(date '+%F %T'): test run on local"
-elif [ ${run_mode} = "aws" ];then
+if [ ${run_mode} = "aws" ];then
 	echo "$(date '+%F %T'): test run on aws"
 
   if [ ${need_prepare_emr} -eq 1 ];then
@@ -38,9 +33,7 @@ elif [ ${run_mode} = "aws" ];then
 	  bash ${main_script_dir}/prepareTestData.sh ${local_key_file} ${namenode_ip} ${emr_namenode_user} ${local_aws_config_dir} ${s3_data_source_home} ${namenode_data_tmp} ${data_type}
 	  echo "$(date '+%F %T'): prepare data ready"
   fi
-  #export namenode_ip="68.79.43.17" #$(cat /tmp/namenode_ip)
-  #export private_namenode_ip="172.31.31.141" #$(cat /tmp/private_namenode_ip)
-  #export emr_cluster_id="j-2HY8CUQENZ4R2" #$(cat /tmp/emr_cluster_id)
+
   export namenode_ip=$(cat /tmp/namenode_ip)
   export private_namenode_ip=$(cat /tmp/private_namenode_ip)
   export private_datanode_ip=$(cat /tmp/private_datanode_ip)
