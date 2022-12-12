@@ -52,11 +52,17 @@ echo -e ${namenode_ip} > /tmp/namenode_ip #used for connecting namenode when dat
 echo -e `aws emr list-instances --cluster-id ${emr_cluster_id}|grep xlarge|awk '{print $8}'` > /tmp/private_all_emr_node_ip
 private_all_emr_node_ip=(`cat /tmp/private_all_emr_node_ip`)
 private_all_emr_node_ip_list=''
+private_datanode_ip_list=''
 for emr_node in ${private_all_emr_node_ip[@]}
 do
   private_all_emr_node_ip_list=${emr_node}","${private_all_emr_node_ip_list}
+
+  if [ ${emr_node} != ${private_namenode_ip} ];then
+    private_datanode_ip_list=${emr_node}","${private_datanode_ip_list}
+  fi
 done
 echo -ne ${private_all_emr_node_ip_list%?} > /tmp/private_all_emr_node_ip
+echo -ne ${private_datanode_ip_list%?} > /tmp/private_datanode_ip
 
 echo "$(date '+%F %T'): hdfs health check!"
 sleep ${emr_start_waiting_time_s}

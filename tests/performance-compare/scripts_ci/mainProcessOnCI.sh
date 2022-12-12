@@ -43,6 +43,7 @@ elif [ ${run_mode} = "aws" ];then
   #export emr_cluster_id="j-2HY8CUQENZ4R2" #$(cat /tmp/emr_cluster_id)
   export namenode_ip=$(cat /tmp/namenode_ip)
   export private_namenode_ip=$(cat /tmp/private_namenode_ip)
+  export private_datanode_ip=$(cat /tmp/private_datanode_ip)
   export emr_cluster_id=$(cat /tmp/emr_cluster_id)
   export private_all_emr_node_ip=$(cat /tmp/private_all_emr_node_ip) #comma seperated list
 
@@ -133,6 +134,8 @@ do
 	if [ \$? -ne 0 ];then
         	exit 1
 	fi
+
+	./setupMonitor.sh ${key_file} ${monitor_home} ${private_driver_host} ${private_worker_hosts} ${private_namenode_ip} ${private_datanode_ip}
 
 	#check if need to setup s3client env,tbd
 
