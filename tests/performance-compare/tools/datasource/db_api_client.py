@@ -82,7 +82,7 @@ class DBApiClient(metaclass=ABCMeta):
         except Exception as e:
             log.error(e)
             request_meta["exception"] = e
-        request_meta["response_time"] = int((time.perf_counter() - start_perf_counter) * 1000)
+        request_meta["response_time"] = int((time.perf_counter() - start_perf_counter) * 1000 * 1000)  # ns
         self.env.events.request.fire(**request_meta)
         return request_meta["response"]
 

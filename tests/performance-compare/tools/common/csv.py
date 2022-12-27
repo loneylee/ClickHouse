@@ -15,9 +15,11 @@ def write_result(dirs, stats_entries):
                 detail.write(key[0] + DATA_SPLIT_CHAR + locust_group_to_times(entry.response_times))
                 detail.write("\n")
                 aggregated.write(key[
-                                     0] + DATA_SPLIT_CHAR + str(entry.avg_response_time) + DATA_SPLIT_CHAR + str(
-                    entry.median_response_time) + DATA_SPLIT_CHAR + str(entry.min_response_time) + DATA_SPLIT_CHAR +
-                                 str(entry.max_response_time))
+                                     0] + DATA_SPLIT_CHAR + str(
+                    int(entry.avg_response_time / 1000)) + DATA_SPLIT_CHAR + str(
+                    int(entry.median_response_time / 1000)
+                ) + DATA_SPLIT_CHAR + str(int(entry.min_response_time / 1000)) + DATA_SPLIT_CHAR +
+                                 str(int(entry.max_response_time / 1000)))
                 aggregated.write("\n")
 
 
@@ -36,9 +38,9 @@ def append_times(times, elapsed):
     r = ""
     for i in range(times):
         if i == 0:
-            r = str(elapsed)
+            r = str(int(elapsed / 1000))
         else:
-            r += DATA_SPLIT_CHAR + str(elapsed)
+            r += DATA_SPLIT_CHAR + str(int(elapsed / 1000))
     return r
 
 
