@@ -7,7 +7,7 @@ from datasource import gluten
 from datasource import hive
 from datasource import mysql
 from datasource import starrocks
-
+from datasource import doris
 
 def get_client(environment):
     client = str.lower(config.ENGINE)
@@ -21,6 +21,8 @@ def get_client(environment):
         return gluten.GlutenDBApiClient(environment)
     elif client == str.lower(starrocks.ENGINE):
         return starrocks.StarrocksDBApiClient(environment)
+    elif client == str.lower(doris.ENGINE):
+        return doris.DorisDBApiClient(environment)
     else:
         logging.getLogger("Engine").error("Engine {} not support", client)
         sys.exit(10)

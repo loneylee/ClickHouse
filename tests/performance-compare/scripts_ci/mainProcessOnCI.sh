@@ -117,6 +117,7 @@ do
   fi
 
 	#check if need to setup ansible and make a config
+	echo "bash ./setupAnsible.sh ${key_file} ${private_driver_host} ${private_worker_hosts} ${private_all_emr_node_ip} ${cloud_vm_user} ${emr_namenode_user}"
 	bash ./setupAnsible.sh ${key_file} ${private_driver_host} ${private_worker_hosts} ${private_all_emr_node_ip} ${cloud_vm_user} ${emr_namenode_user}
 	if [ \$? -ne 0 ];then
 		exit 1
@@ -128,7 +129,7 @@ do
         	exit 1
 	fi
 
-	./setupMonitor.sh ${key_file} ${monitor_home} ${private_driver_host} ${private_worker_hosts} ${private_namenode_ip} ${private_datanode_ip}
+	bash ./setupMonitor.sh ${key_file} ${cloud_vm_user} ${monitor_home_subfix} ${private_driver_host} ${private_worker_hosts} ${private_namenode_ip} ${private_datanode_ip}
 
 	#check if need to setup s3client env,tbd
 

@@ -111,7 +111,7 @@ class Tpch(object):
         t_customer.columns.append(Column("c_mktsegment", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_customer.columns.append(Column("c_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
         # t.engine = "MergeTree"
-        t_customer.shard_cols=["c_custkey","c_name","c_address","c_nationkey","c_phone","c_mktsegment","c_comment"]
+        t_customer.shard_cols=["c_custkey","c_nationkey"]
         return t_customer
 
 
@@ -133,7 +133,7 @@ class Tpch(object):
         t_lineitem.columns.append(Column("l_shipinstruct", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_lineitem.columns.append(Column("l_shipmode", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_lineitem.columns.append(Column("l_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
-        t_lineitem.shard_cols = ["l_orderkey","l_partkey","l_suppkey","l_linenumber","l_shipmode","l_comment"]
+        t_lineitem.shard_cols = ["l_orderkey","l_partkey","l_suppkey","l_linenumber"]
         return t_lineitem
 
     def nation(self):
@@ -142,7 +142,7 @@ class Tpch(object):
         t_nation.columns.append(Column("n_name", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_nation.columns.append(Column("n_regionkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
         t_nation.columns.append(Column("n_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
-        t_nation.shard_cols=["n_nationkey","n_name","n_regionkey","n_comment"]
+        t_nation.shard_cols=["n_nationkey","n_regionkey"]
         return t_nation
 
     def orders(self):
@@ -156,7 +156,7 @@ class Tpch(object):
         t_orders.columns.append(Column("o_clerk", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_orders.columns.append(Column("o_shippriority", ColumnType.BIGINT, config.COLUMN_NULLABLE))
         t_orders.columns.append(Column("o_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
-        t_orders.shard_cols=["o_orderkey","o_custkey","o_orderstatus","o_clerk","o_comment"]
+        t_orders.shard_cols=["o_orderkey","o_custkey","o_shippriority"]
         return t_orders
 
     def part(self):
@@ -170,7 +170,7 @@ class Tpch(object):
         t_part.columns.append(Column("p_container", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_part.columns.append(Column("p_retailprice", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
         t_part.columns.append(Column("p_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
-        t_part.shard_cols=["p_partkey","p_name","p_mfgr","p_brand","p_type","p_comment"]
+        t_part.shard_cols=["p_partkey","p_size"]
         return t_part
 
     def partsupp(self):
@@ -180,7 +180,7 @@ class Tpch(object):
         t_partsupp.columns.append(Column("ps_availqty", ColumnType.BIGINT, config.COLUMN_NULLABLE))
         t_partsupp.columns.append(Column("ps_supplycost", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
         t_partsupp.columns.append(Column("ps_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
-        t_partsupp.shard_cols=["ps_partkey","ps_suppkey","ps_availqty","ps_comment"]
+        t_partsupp.shard_cols=["ps_partkey","ps_suppkey","ps_availqty"]
         return t_partsupp
 
     def region(self):
@@ -188,7 +188,7 @@ class Tpch(object):
         t_region.columns.append(Column("r_regionkey", ColumnType.BIGINT, config.COLUMN_NULLABLE))
         t_region.columns.append(Column("r_name", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_region.columns.append(Column("r_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
-        t_region.shard_cols=["r_regionkey","r_name","r_comment"]
+        t_region.shard_cols=["r_regionkey"]
         return t_region
 
     def supplier(self):
@@ -200,7 +200,7 @@ class Tpch(object):
         t_supplier.columns.append(Column("s_phone", ColumnType.STRING, config.COLUMN_NULLABLE))
         t_supplier.columns.append(Column("s_acctbal", ColumnType.DOUBLE, config.COLUMN_NULLABLE))
         t_supplier.columns.append(Column("s_comment", ColumnType.STRING, config.COLUMN_NULLABLE))
-        t_supplier.shard_cols=["s_suppkey","s_name","s_address","s_nationkey","s_phone","s_comment"]
+        t_supplier.shard_cols=["s_suppkey","s_nationkey"]
         return t_supplier
 
     # t_region.columns.append(Column("",ColumnType.) )

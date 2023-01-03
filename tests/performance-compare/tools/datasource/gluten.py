@@ -18,6 +18,6 @@ class GlutenDBApiClient(hive.HiveDBApiClient):
 
     def trans_column_nullable(self, nullable):
         if nullable:
-            return " NULL "
+            return " "
         else:
             return " NOT NULL "

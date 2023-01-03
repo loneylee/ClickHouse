@@ -1,18 +1,19 @@
 #!/bin/bash
 
 
-if [ $# -ne 6 ];then
-        echo "Usage: ./setupMonitor.sh key_file monitor_home private_driver_host private_worker_hosts private_namenode_ip private_datanode_ip"
+if [ $# -ne 7 ];then
+        echo "Usage: ./setupMonitor.sh key_file cloud_vm_user monitor_home_subfix private_driver_host private_worker_hosts private_namenode_ip private_datanode_ip"
         exit 1
 fi
 #./setupMonitor.sh /home/ubuntu/ckops-awscn.pem ~/glutenTest/monitor
 
 key_file=$1
-monitor_home=$2
-private_driver_host=$3
-private_worker_hosts=$4
-private_namenode_ip=$5
-private_datanode_ip=$6
+cloud_vm_user=$2
+monitor_home_subfix=$3
+private_driver_host=$4
+private_worker_hosts=$5
+private_namenode_ip=$6
+private_datanode_ip=$7
 
 echo "$(date '+%F %T'): setup monitor,include node exporter,prometheus,grafana"
 
@@ -21,7 +22,7 @@ echo "$(date '+%F %T'): setup monitor,include node exporter,prometheus,grafana"
 #todo: download exporter zip package
 #todo: upload playbook yml
 
-cd ${monitor_home}
+cd /home/${cloud_vm_user}/${monitor_home_subfix}
 echo "$(date '+%F %T'): config prometheus.yml"
 cp prometheus.yml.template prometheus.yml
 #replace ip holders in prometheus.yml:
@@ -61,7 +62,7 @@ sed -i "s#{spark-worker}#${spark_worker_list}#g" prometheus.yml
 sed -i "s#{emr-worker}#${emr_worker_list}#g" prometheus.yml
 
 echo "$(date '+%F %T'): config prometheus.yml complete, start monitor deployment"
-ansible-playbook --key-file ${key_file} export.yml --extra-vars "install_dir=${monitor_home}"
+ansible-playbook --key-file ${key_file} export.yml --extra-vars "install_dir=~/${monitor_home_subfix}"
 sudo docker restart prometheus
 sudo docker restart grafana
 

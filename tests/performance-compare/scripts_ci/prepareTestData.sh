@@ -28,8 +28,14 @@ if [[ "${data_type[@]}" =~ "tpch100" ]] ; then
 	ssh -i ${local_key_file} ${emr_namenode_user}@${namenode_ip} << EOF
 	mkdir -p ${namenode_data_tmp}/tpch-data-sf100
 	aws s3 cp --recursive ${s3_data_source_home}/tpch-data-sf100 ${namenode_data_tmp}/tpch-data-sf100
-	echo "upload to hdfs..."
+	echo "tpch100 upload to hdfs..."
 	/usr/bin/hdfs dfs -put ${namenode_data_tmp}/tpch-data-sf100 /tmp/
+
+	mkdir -p ${namenode_data_tmp}/tpch-data-sf100-null
+	aws s3 cp --recursive ${s3_data_source_home}/tpch-data-sf100-null ${namenode_data_tmp}/tpch-data-sf100-null
+	echo "tpch100-null upload to hdfs..."
+	/usr/bin/hdfs dfs -put ${namenode_data_tmp}/tpch-data-sf100-null /tmp/
+
 EOF
 fi
 

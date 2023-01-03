@@ -122,10 +122,10 @@ echo "$(date '+%F %T'): start history server"
 #use beeline do a connection test
 echo "$(date '+%F %T'): do a connect test"
 sleep 10
-./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;create database if not exists tpch100;create database if not exists tpch1000;"
+./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch100_null_external;create database if not exists tpch100;create database if not exists tpch100_null;create database if not exists tpch100_parquet;"
 if [ $? -ne 0 ];then
 	sleep 15
-	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch1000_external;create database if not exists tpch100;create database if not exists tpch1000;"
+	./bin/beeline -u jdbc:hive2://${spark_master_ip}:10000/ -n root -e "create database if not exists tpch100_external;create database if not exists tpch100_null_external;create database if not exists tpch100;create database if not exists tpch100_null;create database if not exists tpch100_parquet;"
 	if [ $? -ne 0 ];then
 		echo "$(date '+%F %T'): Spark not launched!Have a check!"
 		exit 102
