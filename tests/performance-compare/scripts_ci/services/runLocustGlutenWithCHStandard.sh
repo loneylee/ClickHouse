@@ -15,7 +15,7 @@ spark_home=$7
 
 #call locust script,tbd
 echo "$(date '+%F %T'): call call locust script"
-if [ ${run_mode} -eq 1 ];then
+if [ ${gluten_run_mode} -eq 1 ];then
   if [ ${column_nullable} == "False" ];then
     echo "$(date '+%F %T'): GlutenWithCHStandard create external table and make query test"
     python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir} \
@@ -29,7 +29,7 @@ if [ ${run_mode} -eq 1 ];then
   fi
 fi
 
-if [ ${run_mode} -eq 2 ];then
+if [ ${gluten_run_mode} -eq 2 ];then
   if [ ${column_nullable} == "False" ];then
     echo "$(date '+%F %T'): GlutenWithCHStandard create inner mergetree table"
     python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir}"_inner" \
@@ -57,7 +57,7 @@ if [ ${run_mode} -eq 2 ];then
   fi
 fi
 
-if [ ${run_mode} -eq 3 ];then
+if [ ${gluten_run_mode} -eq 3 ];then
     echo "$(date '+%F %T'): GlutenWithCHStandard create inner parquet table and make query test"
     python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir} \
         -p 10000 --host ${private_driver_host} --user root --database tpch100_parquet --external-path file:///${data_home}/tpch-data-sf100 \
@@ -65,7 +65,7 @@ if [ ${run_mode} -eq 3 ];then
 fi
 
 
-if [ ${run_mode} -eq 4 ];then
+if [ ${gluten_run_mode} -eq 4 ];then
   echo "$(date '+%F %T'): GlutenWithCHStandard only create external table,not query"
   python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir} \
         -p 10000 --host ${private_driver_host} --user root --database tpch100_external --external-path hdfs://${private_namenode_ip}:8020/tmp/tpch-data-sf100 \
