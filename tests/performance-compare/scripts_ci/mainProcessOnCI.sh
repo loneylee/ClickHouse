@@ -73,7 +73,7 @@ scp -i ${local_key_file}  /tmp/emr_cluster_id ${cloud_vm_user}@${driver_host}:/t
 echo "$(date '+%F %T'): get all newly updated scripts into script_home"
 ssh -i ${local_key_file} ${cloud_vm_user}@${driver_host} "rm -rf ${script_home};mkdir -p ${script_home}"
 #copy scripts from ci local to remote driver vm
-scp -i ${local_key_file} -R ${local_script_home}/* ${cloud_vm_user}@${driver_host}:${script_home}/
+scp -i ${local_key_file} -r ${local_script_home}/* ${cloud_vm_user}@${driver_host}:${script_home}/
 if [ $? -ne 0 ];then
 	echo "$(date '+%F %T'): shell script upload to driver failed!"
 	exit 1
