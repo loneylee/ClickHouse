@@ -33,6 +33,7 @@ if [ ! -d "${spark_home}" ];then
 	
 fi
 
+
 ansible --key-file ${key_file} tcluster -m shell -a "rm -f ${spark_home}/jars/gluten*.jar;mkdir -p /tmp/clickhouse;mkdir -p /tmp/libch"
 ansible --key-file ${key_file} tcluster -m copy -a "src=${gluten_standard_jar} dest=${spark_home}/jars/"
 ansible --key-file ${key_file} workers  -m copy -a "src=${libch_standard_so} dest=${libch_standard_so}"

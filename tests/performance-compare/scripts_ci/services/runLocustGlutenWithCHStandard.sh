@@ -66,16 +66,16 @@ fi
 
 
 if [ ${gluten_run_mode} -eq 4 ];then
-  echo "$(date '+%F %T'): GlutenWithCHStandard only create external table,not query"
+  echo "$(date '+%F %T'): GlutenWithCHStandard only create external parquet table not null,not query"
   python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir} \
         -p 10000 --host ${private_driver_host} --user root --database tpch100_external --external-path hdfs://${private_namenode_ip}:8020/tmp/tpch-data-sf100 \
         --data-format parquet --create-table-only True --drop-table-before-create True --column-nullable False
-  echo "$(date '+%F %T'): GlutenWithCHStandard only create external nullable table,not query"
+  echo "$(date '+%F %T'): GlutenWithCHStandard only create external parquet table nullable,not query"
   python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir} \
         -p 10000 --host ${private_driver_host} --user root --database tpch100_null_external --external-path hdfs://${private_namenode_ip}:8020/tmp/tpch-data-sf100-null \
         --data-format parquet --create-table-only True --drop-table-before-create True --column-nullable True
 
-  echo "$(date '+%F %T'): GlutenWithCHStandard only create inner table,not query"
+  echo "$(date '+%F %T'): GlutenWithCHStandard only create inner mergertree table not null,not query"
   python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir}"_inner" \
         -p 10000 --host ${private_driver_host} --user root --database tpch100 --external-path ${data_home}/tpch100_ch_data/notnull \
         --data-format mergetree --create-table-only True --drop-table-before-create True --column-nullable False
@@ -87,12 +87,12 @@ if [ ${gluten_run_mode} -eq 4 ];then
     ansible --key-file ${key_file} workers  -m copy -a "src=${data_home}/tpch100_ch_data/notnull/${table}/_metadata_log dest=${data_home}/tpch100_ch_data/notnull/${table}/"
   done
 
-  echo "$(date '+%F %T'): GlutenWithCHStandard only create inner table nullable,not query"
+  echo "$(date '+%F %T'): GlutenWithCHStandard only create inner mergertree table nullable,not query"
   python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir}"_inner" \
         -p 10000 --host ${private_driver_host} --user root --database tpch100_null --external-path ${data_home}/tpch100_ch_data/nullable \
         --data-format mergetree --create-table-only True --drop-table-before-create False --column-nullable True
 
-  echo "$(date '+%F %T'): GlutenWithCHStandard only create inner parquet(notnull) table,not query"
+  echo "$(date '+%F %T'): GlutenWithCHStandard only create inner parquet table not null,not query"
   python3 ${locust_home}/statistic.py --iterations ${iteration} --sql-path ${sqls_home} --dialect gluten --engine gluten --output-dir ${result_dir} \
         -p 10000 --host ${private_driver_host} --user root --database tpch100_parquet --external-path file:///${data_home}/tpch-data-sf100 \
         --data-format parquet --create-table-only True --drop-table-before-create True --column-nullable False

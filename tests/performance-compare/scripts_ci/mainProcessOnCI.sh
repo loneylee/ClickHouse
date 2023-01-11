@@ -129,7 +129,7 @@ do
         	exit 1
 	fi
 
-	bash ./setupMonitor.sh ${key_file} ${cloud_vm_user} ${monitor_home_subfix} ${private_driver_host} ${private_worker_hosts} ${private_namenode_ip} ${private_datanode_ip}
+	#bash ./setupMonitor.sh ${key_file} ${cloud_vm_user} ${monitor_home_subfix} ${private_driver_host} ${private_worker_hosts} ${private_namenode_ip} ${private_datanode_ip}
 
 	#check if need to setup s3client env,tbd
 
