@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ $# -ne 1 ];then
-        echo "Usage: ./cleanVanillaSpark.sh key_file"
+        echo "Usage: ./cleanVanillaSparkOptimized.sh key_file"
         exit 1
 fi
 

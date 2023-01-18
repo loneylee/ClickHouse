@@ -63,7 +63,7 @@ echo "$(date '+%F %T'): driver_host:${driver_host} private_driver_host:${private
 
 #put secret pem(key file) to driver host.First remove then upload,or there will be a "Permission denied" error
 echo "$(date '+%F %T'): put secret pem(key file) to driver host.First remove then upload"
-ssh -o StrictHostKeyChecking=no -i ${local_key_file} ${cloud_vm_user}@${driver_host} "rm ${key_file}"
+ssh -o StrictHostKeyChecking=no -i ${local_key_file} ${cloud_vm_user}@${driver_host} "ls -hl ${key_file}"
 scp -i ${local_key_file} ${local_key_file} ${cloud_vm_user}@${driver_host}:${key_file}
 
 #copy emr id file to driver host for timely cluster shutting down control
@@ -129,7 +129,7 @@ do
         	exit 1
 	fi
 
-	#bash ./setupMonitor.sh ${key_file} ${cloud_vm_user} ${monitor_home_subfix} ${private_driver_host} ${private_worker_hosts} ${private_namenode_ip} ${private_datanode_ip}
+	bash ./setupMonitor.sh ${key_file} ${cloud_vm_user} ${monitor_home_subfix} ${private_driver_host} ${private_worker_hosts} ${private_namenode_ip} ${private_datanode_ip}
 
 	#check if need to setup s3client env,tbd
 

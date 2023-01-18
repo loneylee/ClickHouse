@@ -19,12 +19,13 @@ echo "$(date '+%F %T'): setup monitor,include node exporter,prometheus,grafana"
 
 #prometheus,grafana depend on docker to start,so need to setup docker first,
 #todo: setup docker and then pull down images of prometheus and grafana
-#todo: download exporter zip package
+#todo: download exporter zip package:wget https://github.com/prometheus/node_exporter/releases/download/v1.4.0/node_exporter-1.4.0.linux-amd64.tar.gz
 #todo: upload playbook yml
 
-cd /home/${cloud_vm_user}/${monitor_home_subfix}
 echo "$(date '+%F %T'): config prometheus.yml"
-cp prometheus.yml.template prometheus.yml
+cp ${script_home}/prometheus.yml.template /home/${cloud_vm_user}/${monitor_home_subfix}/prometheus.yml
+cd /home/${cloud_vm_user}/${monitor_home_subfix}
+
 #replace ip holders in prometheus.yml:
 #{driver} -> spark driver private ip,${private_driver_host}
 #{emr-master} -> ${private_namenode_ip}
