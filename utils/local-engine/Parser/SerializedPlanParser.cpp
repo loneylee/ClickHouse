@@ -753,8 +753,9 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel, std::list
             }
 
             auto input = query_plan->getCurrentDataStream().header.getNames();
-            Names input_with_condition(input);
-            input_with_condition.emplace_back(filter_name);
+            NameSet input_with_condition(input.begin(), input.end());
+            input_with_condition.insert(filter_name);
+            input_with_condition.insert(required_columns.begin(), required_columns.end());
             actions_dag->removeUnusedActions(input_with_condition);
             auto filter_step = std::make_unique<FilterStep>(query_plan->getCurrentDataStream(), actions_dag, filter_name, true);
             query_plan->addStep(std::move(filter_step));
@@ -1399,6 +1400,7 @@ const ActionsDAG::Node * SerializedPlanParser::parseFunctionWithDAG(
     {
         if (function_name == "isNotNull")
         {
+            actions_dag->addOrReplaceInOutputs(*args[0]);
             required_columns.emplace_back(args[0]->result_name);
         }
         else if (function_name == "splitByRegexp")
