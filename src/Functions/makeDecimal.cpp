@@ -42,7 +42,7 @@ inline UInt32 extractArgument(const ColumnWithTypeAndName & named_column)
 
 namespace
 {
-    template <typename Name, ConvertExceptionMode exception_mode>
+    template <typename Name, ConvertExceptionMode exception_mode = ConvertExceptionMode::Throw>
     class FunctionMakeDecimal : public IFunction
     {
     public:

@@ -348,6 +348,7 @@ bool tryConvertTo(const DecimalType & decimal, UInt32 scale, To & result)
 }
 
 template <bool is_multiply, bool is_division, typename T, typename U, template <typename> typename DecimalType>
+requires(std::is_same_v<T, DateTime64> || std::is_same_v<U, DateTime64>)
 inline auto binaryOpResult(const DecimalType<T> & tx, const DecimalType<U> & ty)
 {
     UInt32 scale{};
@@ -362,6 +363,46 @@ inline auto binaryOpResult(const DecimalType<T> & tx, const DecimalType<U> & ty)
         return DataTypeDecimalTrait<U>(DecimalUtils::max_precision<U>, scale);
     else
         return DataTypeDecimalTrait<T>(DecimalUtils::max_precision<T>, scale);
+}
+
+template <bool is_multiply, bool is_division, typename T, typename U, template <typename> typename DecimalType>
+inline auto binaryOpResult(const DecimalType<T> & tx, const DecimalType<U> & ty)
+{
+    UInt32 scale;
+    UInt32 precision;
+
+    if constexpr (is_multiply)
+    {
+        scale = tx.getScale() + ty.getScale(); // s1 + s2
+        precision = tx.getPrecision() + ty.getPrecision() + 1; // p1 + p2 + 1
+    }
+    else if constexpr (is_division)
+    {
+        scale = tx.getScale() + ty.getPrecision() + 1 > 6 ? tx.getScale() + ty.getPrecision() + 1 : 6; // max(6, s1 + p2 + 1)
+        precision = tx.getPrecision() - tx.getScale() + ty.getScale() + scale; // p1 - s1 + s2 + max(6, s1 + p2 + 1)
+    }
+    else
+    {
+        scale = (tx.getScale() > ty.getScale() ? tx.getScale() : ty.getScale());
+        UInt32 m1 = tx.getPrecision() - tx.getScale();
+        UInt32 m2 = ty.getPrecision() - ty.getScale();
+        UInt32 max = m1 > m2 ? m1 : m2;
+        precision = scale + max + 1; // max(s1, s2) + max(p1-s1, p2-s2) + 1
+    }
+
+    if (precision < DecimalUtils::min_precision || precision > DecimalUtils::max_precision<Decimal256>)
+        throw Exception(ErrorCodes::DECIMAL_OVERFLOW, "Wrong precision");
+
+    if (scale > precision)
+        throw Exception(ErrorCodes::DECIMAL_OVERFLOW, "Negative scales and scales larger than precision are not supported");
+
+    if (precision <= DecimalUtils::max_precision<Decimal32>)
+        return DataTypeDecimalTrait<Decimal32>(precision, scale);
+    else if (precision <= DecimalUtils::max_precision<Decimal64>)
+        return DataTypeDecimalTrait<Decimal64>(precision, scale);
+    else if (precision <= DecimalUtils::max_precision<Decimal128>)
+        return DataTypeDecimalTrait<Decimal128>(precision, scale);
+    return DataTypeDecimalTrait<Decimal256>(precision, scale);
 }
 
 template <bool, bool, typename T, typename U, template <typename> typename DecimalType>
