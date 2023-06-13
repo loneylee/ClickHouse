@@ -132,9 +132,9 @@ struct CredentialsConfiguration
     bool no_sign_request = false;
 
     // STS Assume Role related
-    std::string role_arn;
-    std::string session_name;
-    std::string external_id;
+    std::string role_arn = "";
+    std::string session_name = "";
+    std::string external_id = "";
 };
 
 class S3CredentialsProviderChain : public Aws::Auth::AWSCredentialsProviderChain
