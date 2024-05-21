@@ -30,8 +30,7 @@ public:
         double remerge_lowered_memory_bytes_ratio_,
         size_t max_bytes_before_external_sort_,
         TemporaryDataOnDiskPtr tmp_data_,
-        size_t min_free_disk_space_,
-        std::function<bool()> worth_external_sort = nullptr);
+        size_t min_free_disk_space_);
 
     String getName() const override { return "MergeSortingTransform"; }
 
@@ -53,8 +52,6 @@ private:
     size_t sum_rows_in_blocks = 0;
     size_t sum_bytes_in_blocks = 0;
 
-    std::function<bool()> worth_external_sort = nullptr;
-
     LoggerPtr log = getLogger("MergeSortingTransform");
 
     /// If remerge doesn't save memory at least several times, mark it as useless and don't do it anymore.
@@ -62,8 +59,6 @@ private:
 
     /// Merge all accumulated blocks to keep no more than limit rows.
     void remerge();
-
-    size_t getAdaptiveMaxMergeSize();
 
     ProcessorPtr external_merging_sorted;
 };
