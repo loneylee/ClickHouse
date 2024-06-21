@@ -59,6 +59,30 @@ struct AvgFraction
         return numerator_float / denominator_float;
     }
 
+    Int128 NO_SANITIZE_UNDEFINED divideDecimalAndUInt(UInt32 num_scale, UInt32 result_scale, UInt32 round_scale) const
+    {
+        chassert(is_decimal<Numerator> && is_integer<Denominator>);
+        auto value = numerator.value;
+        if (result_scale > num_scale)
+        {
+            auto diff = DecimalUtils::scaleMultiplier<Numerator>(result_scale - num_scale);
+            value = value * diff;
+        }
+        else if (result_scale < num_scale)
+        {
+            auto diff = DecimalUtils::scaleMultiplier<Numerator>(num_scale - result_scale);
+            value = value / diff;
+        }
+
+        auto result = value / denominator;
+
+        if (round_scale > result_scale)
+            return result;
+
+        auto round_diff = DecimalUtils::scaleMultiplier<Numerator>(result_scale - round_scale);
+        return (result + round_diff / 2) / round_diff * round_diff;
+    }
+
     Float64 NO_SANITIZE_UNDEFINED divide() const
     {
         if constexpr (DecimalOrExtendedInt<Denominator>) /// if extended int
