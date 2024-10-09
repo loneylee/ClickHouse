@@ -14,6 +14,7 @@ std::unique_ptr<ReadBuffer> PartMetadataManagerOrdinary::read(const String & fil
     auto read_settings = getReadSettings().adjustBufferSize(file_size);
     /// Default read method is pread_threadpool, but there is not much point in it here.
     read_settings.local_fs_method = LocalFSReadMethod::pread;
+    read_settings.remote_fs_method = RemoteFSReadMethod::read;
 
     auto res = part->getDataPartStorage().readFile(file_name, read_settings, file_size, std::nullopt);
 

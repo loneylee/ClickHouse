@@ -136,7 +136,12 @@ void MergeTreeDataPartWide::loadIndexGranularityImpl(
     }
     else
     {
-        auto marks_file = data_part_storage_.readFile(marks_file_path, getReadSettings().adjustBufferSize(marks_file_size), marks_file_size, std::nullopt);
+        auto read_settings = getReadSettings().adjustBufferSize(marks_file_size);
+        /// Default read method is pread_threadpool, but there is not much point in it here.
+        read_settings.local_fs_method = LocalFSReadMethod::pread;
+        read_settings.remote_fs_method = RemoteFSReadMethod::read;
+
+        auto marks_file = data_part_storage_.readFile(marks_file_path, read_settings, marks_file_size, std::nullopt);
 
         std::unique_ptr<ReadBuffer> marks_reader;
         if (!index_granularity_info_.mark_type.compressed)

@@ -110,9 +110,13 @@ void MergeTreeDataPartCompact::loadIndexGranularityImpl(
             std::string(fs::path(data_part_storage_.getFullPath()) / marks_file_path));
 
     size_t marks_file_size = data_part_storage_.getFileSize(marks_file_path);
+    auto read_settings = getReadSettings().adjustBufferSize(marks_file_size);
+    /// Default read method is pread_threadpool, but there is not much point in it here.
+    read_settings.local_fs_method = LocalFSReadMethod::pread;
+    read_settings.remote_fs_method = RemoteFSReadMethod::read;
 
     std::unique_ptr<ReadBufferFromFileBase> buffer = data_part_storage_.readFile(
-        marks_file_path, ReadSettings().adjustBufferSize(marks_file_size), marks_file_size, std::nullopt);
+        marks_file_path, read_settings, marks_file_size, std::nullopt);
 
     std::unique_ptr<ReadBuffer> marks_reader;
     bool marks_compressed = index_granularity_info_.mark_type.compressed;
